@@ -13,6 +13,13 @@ CSS = """
         font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Consolas', monospace !important;
     }
     
+    /* 保留 Material Icons 字体 */
+    [data-testid="stIconMaterial"],
+    .material-icons,
+    [translate="no"] {
+        font-family: 'Material Symbols Rounded', 'Material Icons' !important;
+    }
+    
     /* 背景 */
     .stApp {
         background: #0d1117;

@@ -2,12 +2,14 @@
 UI 组件模块
 """
 import os
+import time
 import streamlit as st
+import streamlit.components.v1 as components
 
 from modules.trend import analyze_trends
 from modules.crawler import fetch_note_content
 from modules.writer import generate_note_package
-from modules.painter import generate_images_with_ideogram
+# from modules.painter import generate_images_with_ideogram  # 断开生图链接
 from modules.persona import get_categories, get_personas_by_category
 
 
@@ -67,17 +69,17 @@ def render_topic_selector():
     
     col1, col2 = st.columns([3, 1])
     with col1:
-        niche = st.text_input(
-            "niche", 
-            placeholder="输入赛道：美妆 / 职场 / 健身 ...", 
+        keyword = st.text_input(
+            "keyword",
+            placeholder="输入关键词：酒局妆容 / 年终奖谈判 ...",
             label_visibility="collapsed"
         )
     with col2:
         analyze_btn = st.button("analyze()", type="primary", use_container_width=True)
     
-    if analyze_btn and niche:
+    if analyze_btn and keyword:
         with st.spinner("analyzing..."):
-            topics = analyze_trends(niche)
+            topics = analyze_trends(keyword)
             st.session_state.topics = topics
             st.session_state.selected_topic = None
             st.session_state.note_result = None
@@ -110,6 +112,7 @@ def render_persona_config():
     st.success(f"selected: {st.session_state.selected_topic}")
     st.markdown("### persona")
     
+    # 赛道选择
     categories = get_categories()
     category_options = categories + ["custom"]
     
@@ -125,12 +128,14 @@ def render_persona_config():
     persona_text = None
     
     if selected_category == "custom":
+        # 自定义人设
         with col2:
             persona_text = st.text_input(
                 "persona_style", 
                 placeholder="治愈系姐姐 / 毒舌闺蜜 ..."
             )
     else:
+        # 根据赛道筛选人设
         personas = get_personas_by_category(selected_category)
         persona_options = [p['name'] for p in personas]
         
@@ -149,6 +154,7 @@ def render_persona_config():
             with st.expander(f"cat {selected_persona['name']}.prompt"):
                 st.code(persona_text, language=None)
     
+    # 参考链接
     ref_url = st.text_input("ref_url (optional)", placeholder="https://xiaohongshu.com/...")
     
     st.markdown("")
@@ -158,22 +164,28 @@ def render_persona_config():
         if not persona_text:
             st.warning("error: persona not selected")
         else:
-            with st.spinner("generating content & design..."):
+            with st.status("生成中...", expanded=True) as status:
                 ref_content = None
                 if ref_url:
-                    with st.status("crawling reference..."):
-                        ref_data = fetch_note_content(ref_url)
-                        if ref_data:
-                            ref_content = f"标题：{ref_data.get('title', '')}\n\n{ref_data.get('content', '')}"
-                            st.write("[OK] reference loaded")
-                        else:
-                            st.write("[--] crawl failed, creating original")
+                    status.update(label="📥 正在抓取参考内容...")
+                    ref_data = fetch_note_content(ref_url)
+                    if ref_data:
+                        ref_content = f"标题：{ref_data.get('title', '')}\n\n{ref_data.get('content', '')}"
+                        st.write("[OK] reference loaded")
+                    else:
+                        st.write("[--] crawl failed, creating original")
                 
+                status.update(label="🧠 正在构思标题...")
+                time.sleep(0.3)
+                
+                status.update(label="✍️ 正在撰写正文 & 设计分镜...")
                 result = generate_note_package(
                     topic=st.session_state.selected_topic,
                     persona=persona_text,
                     reference_text=ref_content
                 )
+                
+                status.update(label="✅ 生成完成!", state="complete")
                 st.session_state.note_result = result
                 st.session_state.image_urls = []
     
@@ -203,80 +215,95 @@ def render_content_display():
     # 正文
     st.markdown("### content")
     content = result.get("content", "")
-    st.text_area("content", content, height=300, key="content_area", label_visibility="collapsed")
+    st.text_area("content", content, height=400, key="content_area", label_visibility="collapsed")
     
-    # 图片设计方案
-    st.markdown("### images_design[]")
-    designs = result.get("images_design", [])
-    for i, design in enumerate(designs):
-        design_type = design.get('type', 'unknown')
-        main_text = design.get('main_text', '')
-        sub_text = design.get('sub_text', '')
-        visual_style = design.get('visual_style', '')
-        
-        with st.expander(f"[{i}] {design_type}: {main_text}"):
-            st.markdown(f"**type:** `{design_type}`")
-            st.markdown(f"**main_text:** {main_text}")
-            if sub_text:
-                st.markdown(f"**sub_text:** {sub_text}")
-            st.markdown(f"**visual_style:** {visual_style}")
+    # 字数统计
+    char_count = len(content.replace(" ", "").replace("\n", ""))
+    st.caption(f"字数：{char_count}")
     
     st.markdown("---")
 
 
 def render_image_export():
-    """Step 4: 视觉与交付"""
-    st.markdown("## step_4: render")
+    """Step 4: 视觉脚本与交付"""
+    st.markdown("## step_4: visual_script")
     
     if not st.session_state.note_result:
         st.info(">> complete step_3 first")
         return
     
-    designs = st.session_state.note_result.get("images_design", [])
+    result = st.session_state.note_result
+    visual_script = result.get("visual_script", [])
     
-    if designs:
-        image_btn = st.button("ideogram.generate()", type="primary", use_container_width=True)
+    if not visual_script:
+        st.warning("visual_script 为空")
+        st.markdown("---")
+        return
+    
+    # 展示视觉分镜脚本
+    st.markdown(f"### 分镜列表 ({len(visual_script)} 张)")
+    
+    for i, item in enumerate(visual_script):
+        scene_type = item.get('scene_type', f'场景{i+1}')
+        description_cn = item.get('description_cn', '')
+        prompt_en = item.get('prompt_en', '')
         
-        if image_btn:
-            with st.spinner("rendering images with Ideogram..."):
-                urls = generate_images_with_ideogram(designs)
-                st.session_state.image_urls = urls
-    
-    # 展示图片
-    if st.session_state.image_urls:
-        st.markdown("### images[]")
-        cols = st.columns(len(st.session_state.image_urls))
-        for i, (col, url) in enumerate(zip(cols, st.session_state.image_urls)):
-            with col:
-                # 获取对应的设计类型
-                design_type = designs[i].get('type', f'img_{i}') if i < len(designs) else f'img_{i}'
-                st.image(url, caption=f"[{i}] {design_type}", use_container_width=True)
+        with st.expander(f"[{i}] {scene_type}", expanded=(i == 0)):
+            st.markdown(f"**画面描述：** {description_cn}")
+            st.markdown("**英文提示词：**")
+            st.code(prompt_en, language="text")
+            
+            # 复制按钮
+            copy_key = f"copy_btn_{i}"
+            if st.button("📋 复制提示词", key=copy_key, use_container_width=True):
+                # 转义特殊字符
+                escaped_prompt = prompt_en.replace('\\', '\\\\').replace('`', '\\`').replace('$', '\\$')
+                components.html(f'''
+                    <script>navigator.clipboard.writeText(`{escaped_prompt}`);</script>
+                ''', height=0)
+                st.toast(f"已复制第 {i+1} 张分镜提示词")
     
     st.markdown("---")
     
     # 导出
     st.markdown("### export")
     
-    result = st.session_state.note_result
     titles = result.get("titles", [])
     content = result.get("content", "")
     
-    md_content = f"# {st.session_state.selected_topic}\n\n## titles\n\n"
+    # 构建 Markdown 内容
+    md_content = f"# {st.session_state.selected_topic}\n\n"
+    
+    # 标题部分
+    md_content += "## 备选标题\n\n"
     for i, title in enumerate(titles):
-        md_content += f"{i}. {title}\n"
+        md_content += f"{i+1}. {title}\n"
     
-    md_content += f"\n## content\n\n{content}\n\n"
+    # 正文部分
+    md_content += f"\n## 正文\n\n{content}\n\n"
     
-    if st.session_state.image_urls:
-        md_content += "## images\n\n"
-        for i, url in enumerate(st.session_state.image_urls):
-            design_type = designs[i].get('type', f'img_{i}') if i < len(designs) else f'img_{i}'
-            md_content += f"![{design_type}]({url})\n\n"
+    # 视觉脚本表格
+    md_content += "## 视觉分镜脚本\n\n"
+    md_content += "| 序号 | 类型 | 中文描述 | 英文提示词 |\n"
+    md_content += "|------|------|----------|------------|\n"
+    
+    for i, item in enumerate(visual_script):
+        scene_type = item.get('scene_type', f'场景{i+1}')
+        description_cn = item.get('description_cn', '').replace('\n', ' ').replace('|', '\\|')
+        prompt_en = item.get('prompt_en', '').replace('\n', ' ').replace('|', '\\|')
+        md_content += f"| {i+1} | {scene_type} | {description_cn} | {prompt_en} |\n"
+    
+    # 单独列出提示词（方便复制）
+    md_content += "\n## 提示词快速复制\n\n"
+    for i, item in enumerate(visual_script):
+        scene_type = item.get('scene_type', f'场景{i+1}')
+        prompt_en = item.get('prompt_en', '')
+        md_content += f"### [{i+1}] {scene_type}\n\n```\n{prompt_en}\n```\n\n"
     
     st.download_button(
         label="download.md",
         data=md_content,
-        file_name="note.md",
+        file_name=f"{st.session_state.selected_topic}.md",
         mime="text/markdown",
         use_container_width=True
     )

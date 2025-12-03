@@ -31,8 +31,8 @@ init_session_state()
 render_sidebar()
 
 # ========== 主界面 ==========
-st.markdown("# Workflow (Ideogram版)")
-st.caption("trend → content → image_design → ideogram → export")
+st.markdown("# Workflow (长文案+提示词版)")
+st.caption("trend → content → visual_script → export")
 st.markdown("---")
 
 # ========== 工作流步骤 ==========
