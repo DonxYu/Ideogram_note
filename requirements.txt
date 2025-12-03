@@ -1,0 +1,8 @@
+streamlit
+openai
+replicate
+oss2
+DrissionPage
+python-dotenv
+requests
+pandas
