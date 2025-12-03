@@ -31,8 +31,8 @@ init_session_state()
 render_sidebar()
 
 # ========== 主界面 ==========
-st.markdown("# Workflow (长文案+提示词版)")
-st.caption("trend → content → visual_script → export")
+st.markdown("# 小红书工作流（长文案+提示词版）")
+st.caption("选题 → 创作 → 分镜 → 导出")
 st.markdown("---")
 
 # ========== 工作流步骤 ==========

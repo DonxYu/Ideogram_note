@@ -28,7 +28,7 @@ def init_session_state():
 def render_sidebar():
     """渲染侧边栏"""
     with st.sidebar:
-        st.markdown("### sys.config")
+        st.markdown("### 系统状态")
         
         openrouter_ok = os.getenv("OPENROUTER_API_KEY")
         replicate_ok = os.getenv("REPLICATE_API_TOKEN")
@@ -44,7 +44,7 @@ ALIYUN_OSS  {'[OK]' if oss_ok else '[--]'}
         
         st.markdown("---")
         
-        with st.expander("env.override"):
+        with st.expander("环境变量"):
             manual_openrouter = st.text_input(
                 "OPENROUTER_API_KEY", 
                 type="password", 
@@ -65,7 +65,7 @@ ALIYUN_OSS  {'[OK]' if oss_ok else '[--]'}
 
 def render_topic_selector():
     """Step 1: 选题雷达"""
-    st.markdown("## step_1: trend_radar")
+    st.markdown("## 第一步：选题雷达")
     
     col1, col2 = st.columns([3, 1])
     with col1:
@@ -75,10 +75,10 @@ def render_topic_selector():
             label_visibility="collapsed"
         )
     with col2:
-        analyze_btn = st.button("analyze()", type="primary", use_container_width=True)
+        analyze_btn = st.button("开始分析", type="primary", use_container_width=True)
     
     if analyze_btn and keyword:
-        with st.spinner("analyzing..."):
+        with st.spinner("分析中..."):
             topics = analyze_trends(keyword)
             st.session_state.topics = topics
             st.session_state.selected_topic = None
@@ -86,9 +86,9 @@ def render_topic_selector():
             st.session_state.image_urls = []
     
     if st.session_state.topics:
-        st.markdown("### topics[]")
+        st.markdown("### 热门话题")
         selected = st.radio(
-            "select topic:",
+            "选择话题",
             st.session_state.topics,
             index=None,
             key="topic_radio",
@@ -102,24 +102,24 @@ def render_topic_selector():
 
 def render_persona_config():
     """Step 2: 创作配置"""
-    st.markdown("## step_2: config")
+    st.markdown("## 第二步：创作配置")
     
     if not st.session_state.selected_topic:
-        st.info(">> select topic in step_1 first")
+        st.info("请先在第一步选择话题")
         st.markdown("---")
         return
     
-    st.success(f"selected: {st.session_state.selected_topic}")
-    st.markdown("### persona")
+    st.success(f"已选：{st.session_state.selected_topic}")
+    st.markdown("### 人设选择")
     
     # 赛道选择
     categories = get_categories()
-    category_options = categories + ["custom"]
+    category_options = categories + ["自定义"]
     
     col1, col2 = st.columns(2)
     with col1:
         selected_category = st.selectbox(
-            "category",
+            "赛道",
             category_options,
             index=0,
             key="category_select"
@@ -127,11 +127,11 @@ def render_persona_config():
     
     persona_text = None
     
-    if selected_category == "custom":
+    if selected_category == "自定义":
         # 自定义人设
         with col2:
             persona_text = st.text_input(
-                "persona_style", 
+                "人设风格", 
                 placeholder="治愈系姐姐 / 毒舌闺蜜 ..."
             )
     else:
@@ -141,7 +141,7 @@ def render_persona_config():
         
         with col2:
             selected_persona_idx = st.selectbox(
-                "select",
+                "人设",
                 range(len(persona_options)),
                 format_func=lambda x: persona_options[x],
                 key="persona_select"
@@ -151,18 +151,18 @@ def render_persona_config():
             selected_persona = personas[selected_persona_idx]
             persona_text = selected_persona.get('prompt', '')
             
-            with st.expander(f"cat {selected_persona['name']}.prompt"):
+            with st.expander(f"查看 {selected_persona['name']} 人设"):
                 st.code(persona_text, language=None)
     
     # 参考链接
-    ref_url = st.text_input("ref_url (optional)", placeholder="https://xiaohongshu.com/...")
+    ref_url = st.text_input("参考链接（可选）", placeholder="https://xiaohongshu.com/...")
     
     st.markdown("")
-    generate_btn = st.button("generate()", type="primary", use_container_width=True)
+    generate_btn = st.button("开始生成", type="primary", use_container_width=True)
     
     if generate_btn:
         if not persona_text:
-            st.warning("error: persona not selected")
+            st.warning("请先选择人设")
         else:
             with st.status("生成中...", expanded=True) as status:
                 ref_content = None
@@ -171,9 +171,9 @@ def render_persona_config():
                     ref_data = fetch_note_content(ref_url)
                     if ref_data:
                         ref_content = f"标题：{ref_data.get('title', '')}\n\n{ref_data.get('content', '')}"
-                        st.write("[OK] reference loaded")
+                        st.write("参考内容已加载")
                     else:
-                        st.write("[--] crawl failed, creating original")
+                        st.write("抓取失败，将创作原创内容")
                 
                 status.update(label="🧠 正在构思标题...")
                 time.sleep(0.3)
@@ -194,17 +194,17 @@ def render_persona_config():
 
 def render_content_display():
     """Step 3: 内容展示"""
-    st.markdown("## step_3: output")
+    st.markdown("## 第三步：内容输出")
     
     if not st.session_state.note_result:
-        st.info(">> generate content in step_2 first")
+        st.info("请先在第二步生成内容")
         st.markdown("---")
         return
     
     result = st.session_state.note_result
     
     # 标题
-    st.markdown("### titles[]")
+    st.markdown("### 备选标题")
     titles = result.get("titles", [])
     for i, title in enumerate(titles):
         st.markdown(
@@ -213,7 +213,7 @@ def render_content_display():
         )
     
     # 正文
-    st.markdown("### content")
+    st.markdown("### 正文内容")
     content = result.get("content", "")
     st.text_area("content", content, height=400, key="content_area", label_visibility="collapsed")
     
@@ -226,10 +226,10 @@ def render_content_display():
 
 def render_image_export():
     """Step 4: 视觉脚本与交付"""
-    st.markdown("## step_4: visual_script")
+    st.markdown("## 第四步：视觉脚本")
     
     if not st.session_state.note_result:
-        st.info(">> complete step_3 first")
+        st.info("请先完成第三步")
         return
     
     result = st.session_state.note_result
@@ -266,7 +266,7 @@ def render_image_export():
     st.markdown("---")
     
     # 导出
-    st.markdown("### export")
+    st.markdown("### 导出")
     
     titles = result.get("titles", [])
     content = result.get("content", "")
@@ -301,7 +301,7 @@ def render_image_export():
         md_content += f"### [{i+1}] {scene_type}\n\n```\n{prompt_en}\n```\n\n"
     
     st.download_button(
-        label="download.md",
+        label="下载 Markdown",
         data=md_content,
         file_name=f"{st.session_state.selected_topic}.md",
         mime="text/markdown",
