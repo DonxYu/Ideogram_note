@@ -127,7 +127,7 @@ prompt_en 必须是专业的 Midjourney/Flux 提示词，包含：
 请创作深度长文案并设计视觉分镜脚本。只输出 JSON，不要其他内容。"""
 
     response = client.chat.completions.create(
-        model="x-ai/grok-4.1-fast:free",
+        model="x-ai/grok-4.1-fast",
         max_tokens=4096,  # 增加 token 上限以支持长文案
         messages=[
             {"role": "system", "content": system_prompt},
