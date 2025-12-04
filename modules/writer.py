@@ -7,6 +7,8 @@ import re
 from dotenv import load_dotenv
 from openai import OpenAI
 
+from modules.monitor import log_api_call, log_generation
+
 load_dotenv()
 
 client = OpenAI(
@@ -135,6 +137,11 @@ prompt_en 必须是专业的 Midjourney/Flux 提示词，包含：
         ]
     )
     
+    # 记录 API 调用
+    usage = response.usage
+    if usage:
+        log_api_call("x-ai/grok-4.1-fast", usage.prompt_tokens, usage.completion_tokens)
+    
     text = response.choices[0].message.content
     
     # 提取 JSON（处理可能的 markdown 代码块）
@@ -146,7 +153,15 @@ prompt_en 必须是专业的 Midjourney/Flux 提示词，包含：
     text = _fix_json_newlines(text)
     
     try:
-        return json.loads(text)
+        result = json.loads(text)
+        # 记录生成历史
+        log_generation(
+            topic=topic,
+            persona=persona or "通用博主",
+            titles=result.get("titles", []),
+            content_preview=result.get("content", "")[:200]
+        )
+        return result
     except json.JSONDecodeError as e:
         print(f"[Writer Error] JSON 解析失败: {e}")
         print(f"[Writer Debug] 响应内容: {text[:500]}...")

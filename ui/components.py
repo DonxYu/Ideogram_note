@@ -11,6 +11,7 @@ from modules.crawler import fetch_note_content
 from modules.writer import generate_note_package
 # from modules.painter import generate_images_with_ideogram  # 断开生图链接
 from modules.persona import get_categories, get_personas_by_category
+from modules.monitor import log_access
 
 
 def init_session_state():
@@ -23,6 +24,10 @@ def init_session_state():
         st.session_state.note_result = None
     if "image_urls" not in st.session_state:
         st.session_state.image_urls = []
+    # 访问日志（每个 session 只记录一次）
+    if "access_logged" not in st.session_state:
+        st.session_state.access_logged = True
+        log_access()
 
 
 def render_sidebar():
