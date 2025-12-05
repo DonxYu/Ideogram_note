@@ -1,0 +1,113 @@
+"""
+内容生成 API
+"""
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from typing import List, Optional, Dict, Any
+
+from modules.writer import generate_note_package
+from modules.crawler import fetch_note_content
+
+router = APIRouter()
+
+
+class ImageDesign(BaseModel):
+    index: int = 0
+    description: str = ""
+    prompt: str = ""
+
+
+class VisualScene(BaseModel):
+    scene_index: int = 0
+    narration: str = ""
+    description: str = ""
+    sentiment: str = ""
+    prompt: str = ""
+
+
+class GenerateRequest(BaseModel):
+    topic: str
+    persona: Optional[str] = None
+    reference_url: Optional[str] = None
+    mode: str = "image"  # "image" | "video"
+    llm_model: str = "deepseek/deepseek-chat"
+    search_data: Optional[Dict[str, Any]] = None  # websearch 返回的完整热点数据
+    
+    model_config = {"protected_namespaces": ()}
+
+
+class GenerateResponse(BaseModel):
+    titles: List[str] = []
+    content: str = ""
+    image_designs: Optional[List[ImageDesign]] = None
+    visual_scenes: Optional[List[VisualScene]] = None
+
+
+@router.post("/generate", response_model=GenerateResponse)
+async def generate_content(req: GenerateRequest):
+    """
+    生成内容（图文/视频模式）
+    
+    图文模式：返回 titles + content + image_designs
+    视频模式：返回 titles + content + visual_scenes
+    """
+    if not req.topic or not req.topic.strip():
+        raise HTTPException(status_code=400, detail="选题不能为空")
+    
+    try:
+        # 抓取参考内容（如有）
+        reference_text = None
+        if req.reference_url:
+            ref_data = fetch_note_content(req.reference_url)
+            if ref_data:
+                reference_text = f"标题：{ref_data.get('title', '')}\n\n{ref_data.get('content', '')}"
+        
+        # 调用写作模块
+        result = generate_note_package(
+            topic=req.topic.strip(),
+            persona=req.persona,
+            reference_text=reference_text,
+            mode=req.mode,
+            model_name=req.llm_model,
+            search_data=req.search_data,
+        )
+        
+        if not result or not result.get("titles"):
+            raise HTTPException(status_code=500, detail="内容生成失败，请重试")
+        
+        # 构造响应
+        response = GenerateResponse(
+            titles=result.get("titles", []),
+            content=result.get("content", ""),
+        )
+        
+        if req.mode == "video":
+            scenes = result.get("visual_scenes", [])
+            response.visual_scenes = [
+                VisualScene(
+                    scene_index=s.get("scene_index", i + 1),
+                    narration=s.get("narration", ""),
+                    description=s.get("description", ""),
+                    sentiment=s.get("sentiment", ""),
+                    prompt=s.get("prompt", ""),
+                )
+                for i, s in enumerate(scenes)
+            ]
+        else:
+            designs = result.get("image_designs", [])
+            response.image_designs = [
+                ImageDesign(
+                    index=d.get("index", i + 1),
+                    description=d.get("description", ""),
+                    prompt=d.get("prompt", ""),
+                )
+                for i, d in enumerate(designs)
+            ]
+        
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"内容生成失败: {str(e)}")
+

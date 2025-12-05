@@ -14,6 +14,8 @@ cp .env.example .env
 
 # 3. 启动
 streamlit run app.py
+OR
+python3 -m uvicorn backend.main:app --reload --port 8501
 ```
 
 ## 环境变量配置

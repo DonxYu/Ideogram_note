@@ -1,8 +1,13 @@
 streamlit
-openai
+openai>=1.0
 replicate
 oss2
 DrissionPage
 python-dotenv
 requests
 pandas
+moviepy
+edge-tts
+pydub
+google-genai>=1.0.0
+pillow
