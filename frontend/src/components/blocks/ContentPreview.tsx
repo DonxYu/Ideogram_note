@@ -10,6 +10,8 @@ import {
   Eye,
   Image as ImageIcon,
   Mic,
+  Download,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -23,14 +25,46 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { useWorkflowStore } from "@/store/workflow";
+import { exportNote } from "@/lib/api";
 import { toast } from "sonner";
 
 export function ContentPreview() {
-  const { mode, generatedContent, selectedTitleIndex, setSelectedTitleIndex, setStep } =
+  const { mode, generatedContent, selectedTitleIndex, setSelectedTitleIndex, setStep, selectedTopic, imageResults } =
     useWorkflowStore();
 
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [expandedScene, setExpandedScene] = useState<number | null>(0);
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExportNote = async () => {
+    if (!generatedContent || !selectedTopic) return;
+    
+    setIsExporting(true);
+    try {
+      const title = generatedContent.titles[selectedTitleIndex] || generatedContent.titles[0];
+      const imageUrls = imageResults
+        .filter((r) => r?.url)
+        .map((r) => r.url as string);
+      
+      const response = await exportNote({
+        topic: selectedTopic.title,
+        title,
+        content: generatedContent.content,
+        image_urls: imageUrls.length > 0 ? imageUrls : undefined,
+        tags: ["小红书", selectedTopic.source || "自动生成"],
+      });
+      
+      if (response.success) {
+        toast.success("笔记已导出到 Obsidian");
+      } else {
+        toast.error("导出失败: " + (response.error || "未知错误"));
+      }
+    } catch (error) {
+      toast.error("导出失败: " + (error as Error).message);
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const copyToClipboard = async (text: string, index: number) => {
     try {
@@ -87,10 +121,25 @@ export function ContentPreview() {
             </p>
           </div>
         </div>
-        <Button onClick={() => setStep("studio")} className="gap-2">
-          下一步
-          <ChevronRight className="w-4 h-4" />
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={handleExportNote}
+            disabled={isExporting || !selectedTopic}
+            className="gap-2"
+          >
+            {isExporting ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Download className="w-4 h-4" />
+            )}
+            导出笔记
+          </Button>
+          <Button onClick={() => setStep("studio")} className="gap-2">
+            下一步
+            <ChevronRight className="w-4 h-4" />
+          </Button>
+        </div>
       </div>
 
       <Tabs defaultValue="content" className="w-full">

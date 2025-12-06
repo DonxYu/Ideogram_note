@@ -39,46 +39,112 @@ def _fix_json_newlines(text: str) -> str:
     return ''.join(result)
 
 
-def _call_llm_and_parse(system_prompt: str, user_content: str, topic: str, persona: str, model_name: str = "deepseek/deepseek-chat") -> dict:
-    """内部函数：调用 LLM 并解析 JSON 响应"""
-    response = client.chat.completions.create(
-        model=model_name,
-        max_tokens=8192,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content}
-        ]
-    )
-    
-    # 记录 API 调用
-    usage = response.usage
-    if usage:
-        log_api_call(model_name, usage.prompt_tokens, usage.completion_tokens)
-    
-    text = response.choices[0].message.content
-    
-    # 提取 JSON（处理可能的 markdown 代码块）
-    json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', text)
-    if json_match:
-        text = json_match.group(1)
-    
-    # 兜底：修复可能存在的裸换行符
+def _fix_json_robust(text: str) -> str:
+    """更鲁棒的 JSON 修复：处理常见格式问题"""
+    # 1. 先修复换行符
     text = _fix_json_newlines(text)
     
-    try:
-        result = json.loads(text)
-        # 记录生成历史
-        log_generation(
-            topic=topic,
-            persona=persona or "通用博主",
-            titles=result.get("titles", []),
-            content_preview=result.get("content", "")[:200]
-        )
-        return result
-    except json.JSONDecodeError as e:
-        print(f"[Writer Error] JSON 解析失败: {e}")
-        print(f"[Writer Debug] 响应内容: {text[:500]}...")
-        return {"titles": [], "content": "", "visual_scenes": [], "image_designs": []}
+    # 2. 移除可能的 BOM 和不可见字符
+    text = text.strip().lstrip('\ufeff')
+    
+    # 3. 修复被截断的 JSON（尝试闭合括号）
+    open_braces = text.count('{') - text.count('}')
+    open_brackets = text.count('[') - text.count(']')
+    
+    # 如果字符串中间有截断，尝试找到最后一个完整的对象
+    if open_braces > 0 or open_brackets > 0:
+        # 尝试补全闭合括号
+        text = text + ']' * open_brackets + '}' * open_braces
+    
+    # 4. 修复尾部多余逗号（如 ", ]" 或 ", }"）
+    text = re.sub(r',\s*}', '}', text)
+    text = re.sub(r',\s*]', ']', text)
+    
+    # 5. 修复字符串中的制表符
+    # 在字符串内部，\t 需要转义
+    result = []
+    in_string = False
+    escape = False
+    for char in text:
+        if escape:
+            result.append(char)
+            escape = False
+        elif char == '\\':
+            result.append(char)
+            escape = True
+        elif char == '"':
+            result.append(char)
+            in_string = not in_string
+        elif char == '\t' and in_string:
+            result.append('    ')  # 用空格替换 tab
+        else:
+            result.append(char)
+    
+    return ''.join(result)
+
+
+def _call_llm_and_parse(system_prompt: str, user_content: str, topic: str, persona: str, model_name: str = "deepseek/deepseek-chat") -> dict:
+    """内部函数：调用 LLM 并解析 JSON 响应，带自动重试"""
+    max_retries = 2
+    last_error = None
+    
+    for attempt in range(max_retries + 1):
+        try:
+            response = client.chat.completions.create(
+                model=model_name,
+                max_tokens=8192,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content}
+                ]
+            )
+            
+            # 记录 API 调用
+            usage = response.usage
+            if usage:
+                log_api_call(model_name, usage.prompt_tokens, usage.completion_tokens)
+            
+            text = response.choices[0].message.content
+            
+            # 提取 JSON（处理可能的 markdown 代码块）
+            json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', text)
+            if json_match:
+                text = json_match.group(1)
+            
+            # 鲁棒修复 JSON 格式问题
+            text = _fix_json_robust(text)
+            
+            result = json.loads(text)
+            
+            # 验证必要字段
+            if not result.get("titles") or not result.get("content"):
+                raise ValueError("JSON 缺少必要字段 titles 或 content")
+            
+            # 记录生成历史
+            log_generation(
+                topic=topic,
+                persona=persona or "通用博主",
+                titles=result.get("titles", []),
+                content_preview=result.get("content", "")[:200]
+            )
+            return result
+            
+        except json.JSONDecodeError as e:
+            last_error = e
+            print(f"[Writer Warning] 第 {attempt + 1} 次尝试 JSON 解析失败: {e}")
+            if attempt < max_retries:
+                print(f"[Writer] 正在重试...")
+                continue
+        except Exception as e:
+            last_error = e
+            print(f"[Writer Warning] 第 {attempt + 1} 次尝试失败: {e}")
+            if attempt < max_retries:
+                continue
+    
+    # 所有重试都失败
+    print(f"[Writer Error] 所有重试均失败: {last_error}")
+    # 抛出异常让上层处理，而不是返回空数据
+    raise RuntimeError(f"内容生成失败，请重试。错误: {last_error}")
 
 
 def generate_image_note(topic: str, persona: str = None, reference_text: str = None, model_name: str = "deepseek/deepseek-chat", search_data: dict = None) -> dict:

@@ -72,8 +72,16 @@ class BatchMediaResponse(BaseModel):
 
 
 def _path_to_url(path: str, media_type: str) -> Optional[str]:
-    """将本地路径转换为静态文件 URL"""
-    if not path or not os.path.exists(path):
+    """将本地路径转换为静态文件 URL，或直接返回 OSS URL"""
+    if not path:
+        return None
+    
+    # 如果已经是 URL（OSS 链接），直接返回
+    if path.startswith("http://") or path.startswith("https://"):
+        return path
+    
+    # 本地路径：检查文件是否存在
+    if not os.path.exists(path):
         return None
     
     # 获取相对于 output 目录的路径
