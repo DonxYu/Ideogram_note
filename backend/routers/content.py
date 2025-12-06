@@ -7,6 +7,7 @@ from typing import List, Optional, Dict, Any
 
 from modules.writer import generate_note_package
 from modules.crawler import fetch_note_content
+from modules.md_exporter import export_note
 
 router = APIRouter()
 
@@ -110,4 +111,46 @@ async def generate_content(req: GenerateRequest):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"内容生成失败: {str(e)}")
+
+
+class ExportRequest(BaseModel):
+    topic: str
+    title: str
+    content: str
+    image_urls: Optional[List[str]] = None
+    tags: Optional[List[str]] = None
+
+
+class ExportResponse(BaseModel):
+    success: bool
+    file_path: Optional[str] = None
+    error: Optional[str] = None
+
+
+@router.post("/export", response_model=ExportResponse)
+async def export_note_to_obsidian(req: ExportRequest):
+    """
+    导出笔记到 Obsidian（MD 格式）
+    
+    将生成的笔记保存到本地 Obsidian 目录
+    """
+    if not req.topic or not req.title or not req.content:
+        raise HTTPException(status_code=400, detail="主题、标题和内容不能为空")
+    
+    try:
+        file_path = export_note(
+            topic=req.topic,
+            title=req.title,
+            content=req.content,
+            image_urls=req.image_urls,
+            tags=req.tags,
+        )
+        
+        if file_path:
+            return ExportResponse(success=True, file_path=file_path)
+        else:
+            return ExportResponse(success=False, error="导出失败，请检查目录权限")
+            
+    except Exception as e:
+        return ExportResponse(success=False, error=str(e))
 

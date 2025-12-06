@@ -289,3 +289,23 @@ export function streamImages(
   return () => controller.abort();
 }
 
+// Export Note to Obsidian
+export interface ExportResponse {
+  success: boolean;
+  file_path: string | null;
+  error: string | null;
+}
+
+export async function exportNote(params: {
+  topic: string;
+  title: string;
+  content: string;
+  image_urls?: string[];
+  tags?: string[];
+}): Promise<ExportResponse> {
+  return fetchAPI<ExportResponse>("/api/content/export", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
