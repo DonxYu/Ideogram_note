@@ -135,10 +135,10 @@ export function ContentPreview() {
             )}
             导出笔记
           </Button>
-          <Button onClick={() => setStep("studio")} className="gap-2">
-            下一步
-            <ChevronRight className="w-4 h-4" />
-          </Button>
+        <Button onClick={() => setStep("studio")} className="gap-2">
+          下一步
+          <ChevronRight className="w-4 h-4" />
+        </Button>
         </div>
       </div>
 

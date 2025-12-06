@@ -156,25 +156,25 @@ export function TopicRadar() {
           >
             {/* Source Badge + Refresh */}
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Badge
-                  variant="secondary"
-                  className={cn(
-                    "gap-1",
-                    topicsSource === "websearch" && "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
-                    topicsSource === "fallback" && "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
-                  )}
-                >
-                  {topicsSource === "websearch" ? (
-                    <Globe className="w-3 h-3" />
-                  ) : (
-                    <AlertCircle className="w-3 h-3" />
-                  )}
+            <div className="flex items-center gap-2">
+              <Badge
+                variant="secondary"
+                className={cn(
+                  "gap-1",
+                  topicsSource === "websearch" && "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
+                  topicsSource === "fallback" && "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                )}
+              >
+                {topicsSource === "websearch" ? (
+                  <Globe className="w-3 h-3" />
+                ) : (
+                  <AlertCircle className="w-3 h-3" />
+                )}
                   {topicsSource === "websearch" ? "小红书热点" : "AI 推测"}
-                </Badge>
-                <span className="text-sm text-muted-foreground">
-                  {topics.length} 个热门话题
-                </span>
+              </Badge>
+              <span className="text-sm text-muted-foreground">
+                {topics.length} 个热门话题
+              </span>
               </div>
               <Button
                 variant="ghost"
