@@ -88,10 +88,7 @@ export function PersonaConfig() {
       return;
     }
 
-    // 开始生成前先清空旧内容，避免显示缓存数据
-    setGeneratedContent(null);
     setIsGenerating(true);
-    
     try {
       const response = await generateContent({
         topic: selectedTopic.title,
@@ -102,17 +99,10 @@ export function PersonaConfig() {
         outline: selectedTopic.outline,
       });
 
-      // 验证响应有效性
-      if (!response.titles || response.titles.length === 0 || !response.content) {
-        throw new Error("生成结果无效，请重试");
-      }
-
       setGeneratedContent(response);
       setStep("preview");
       toast.success(mode === "video" ? "视频脚本生成完成" : "图文内容生成完成");
     } catch (error) {
-      // 生成失败时确保清空内容
-      setGeneratedContent(null);
       toast.error("生成失败: " + (error as Error).message);
     } finally {
       setIsGenerating(false);

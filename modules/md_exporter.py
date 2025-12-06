@@ -5,7 +5,6 @@ Obsidian MD 文件导出模块
 import os
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, List
 from dotenv import load_dotenv
 from modules.utils import sanitize_filename
 
@@ -22,9 +21,9 @@ def export_note(
     topic: str,
     title: str,
     content: str,
-    image_urls: Optional[List[str]] = None,
-    tags: Optional[List[str]] = None
-) -> Optional[str]:
+    image_urls: list = None,
+    tags: list = None
+) -> str | None:
     """
     导出笔记为 Obsidian MD 文件
     
@@ -102,7 +101,7 @@ def export_note_simple(
     topic: str,
     title: str,
     content: str
-) -> Optional[str]:
+) -> str | None:
     """
     简化版导出（仅标题和正文）
     

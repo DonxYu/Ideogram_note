@@ -43,15 +43,6 @@ import { toast } from "sonner";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8501";
 
-// 处理 URL：如果是完整 URL 则直接返回，否则拼接 API_BASE
-function resolveMediaUrl(url: string | null | undefined): string {
-  if (!url) return "";
-  if (url.startsWith("http://") || url.startsWith("https://")) {
-    return url;
-  }
-  return `${API_BASE}${url}`;
-}
-
 function StatusBadge({ status }: { status: "pending" | "generating" | "success" | "error" }) {
   const config = {
     pending: { icon: Clock, label: "待生成", className: "status-pending" },
@@ -473,7 +464,7 @@ export function MediaStudio() {
                   <div className="aspect-[3/4] bg-secondary/30 relative">
                     {imageResult?.url ? (
                       <img
-                        src={resolveMediaUrl(imageResult.url)}
+                        src={`${API_BASE}${imageResult.url}`}
                         alt={`Scene ${i + 1}`}
                         className="w-full h-full object-cover"
                       />
@@ -510,7 +501,7 @@ export function MediaStudio() {
                     {/* Audio Player (Video Mode) */}
                     {mode === "video" && audioResult?.url && (
                       <audio
-                        src={resolveMediaUrl(audioResult.url)}
+                        src={`${API_BASE}${audioResult.url}`}
                         controls
                         className="w-full h-8"
                       />
@@ -536,14 +527,14 @@ export function MediaStudio() {
           <h3 className="text-sm font-medium text-foreground">视频预览</h3>
           <div className="rounded-lg overflow-hidden border border-border">
             <video
-              src={resolveMediaUrl(videoUrl)}
+              src={`${API_BASE}${videoUrl}`}
               controls
               className="w-full max-h-[400px]"
             />
           </div>
           <div className="flex gap-3">
             <Button asChild className="gap-2">
-              <a href={resolveMediaUrl(videoUrl)} download>
+              <a href={`${API_BASE}${videoUrl}`} download>
                 <Download className="w-4 h-4" />
                 下载视频
               </a>
