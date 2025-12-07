@@ -14,7 +14,7 @@ router = APIRouter()
 # ========== 模型配置 ==========
 
 AVAILABLE_MODELS = {
-    "DeepSeek V3 (高情商/国产梗)": "deepseek/deepseek-chat",
+    "DeepSeek Chat (高情商/国产梗)": "deepseek/deepseek-chat",
     "Claude 3.5 Sonnet (拟人感最强)": "anthropic/claude-3.5-sonnet",
     "GPT-4o (逻辑严密)": "openai/gpt-4o",
     "Gemini Pro 1.5 (长文强)": "google/gemini-pro-1.5",
@@ -24,6 +24,7 @@ AVAILABLE_MODELS = {
 IMAGE_PROVIDERS = {
     "replicate": "Replicate (二次元)",
     "volcengine": "火山引擎 (Seedream)",
+    "gemini": "Nano Banana Pro (超高质量)",
 }
 
 TTS_PROVIDERS = {

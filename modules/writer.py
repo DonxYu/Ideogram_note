@@ -4,12 +4,16 @@
 import os
 import json
 import re
+from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
 
 from modules.monitor import log_api_call, log_generation
+from modules.quality_checker import check_content_quality, format_quality_report
 
-load_dotenv()
+# 加载项目根目录的 .env 文件
+_project_root = Path(__file__).parent.parent
+load_dotenv(_project_root / ".env")
 
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
@@ -18,7 +22,7 @@ client = OpenAI(
 
 
 def _fix_json_newlines(text: str) -> str:
-    """修复 JSON 字符串值中的裸换行符"""
+    """修复 JSON 字符串值中的裸换行符（简化版，双引号由 Prompt 控制）"""
     result = []
     in_string = False
     escape = False
@@ -39,11 +43,12 @@ def _fix_json_newlines(text: str) -> str:
     return ''.join(result)
 
 
-def _call_llm_and_parse(system_prompt: str, user_content: str, topic: str, persona: str, model_name: str = "deepseek/deepseek-chat") -> dict:
+def _call_llm_and_parse(system_prompt: str, user_content: str, topic: str, persona: str, model_name: str = "deepseek/deepseek-chat", temperature: float = 0.8) -> dict:
     """内部函数：调用 LLM 并解析 JSON 响应"""
     response = client.chat.completions.create(
         model=model_name,
         max_tokens=8192,
+        temperature=temperature,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content}
@@ -62,6 +67,14 @@ def _call_llm_and_parse(system_prompt: str, user_content: str, topic: str, perso
     if json_match:
         text = json_match.group(1)
     
+    # 移除所有代码块（如果 LLM 误输出了代码）
+    # 保留 JSON 对象部分（以 { 开头）
+    if not text.strip().startswith('{'):
+        # 尝试找到第一个 { 开始的 JSON
+        json_obj_match = re.search(r'\{[\s\S]*\}', text)
+        if json_obj_match:
+            text = json_obj_match.group(0)
+    
     # 兜底：修复可能存在的裸换行符
     text = _fix_json_newlines(text)
     
@@ -76,12 +89,22 @@ def _call_llm_and_parse(system_prompt: str, user_content: str, topic: str, perso
         )
         return result
     except json.JSONDecodeError as e:
-        print(f"[Writer Error] JSON 解析失败: {e}")
-        print(f"[Writer Debug] 响应内容: {text[:500]}...")
-        return {"titles": [], "content": "", "visual_scenes": [], "image_designs": []}
+        print(f"\n{'='*60}")
+        print(f"[Writer Error] JSON 解析失败")
+        print(f"{'='*60}")
+        print(f"错误详情: {e}")
+        print(f"错误位置: 第 {e.lineno} 行，第 {e.colno} 列")
+        print(f"\n完整响应内容（前500字符）:")
+        print(f"{text[:500]}")
+        print(f"\n完整响应内容（后200字符）:")
+        print(f"{text[-200:]}")
+        print(f"\n响应总长度: {len(text)} 字符")
+        print(f"{'='*60}\n")
+        # 抛出异常而不是返回空数据
+        raise ValueError(f"LLM 返回格式错误，请检查日志。预览: {text[:200]}")
 
 
-def generate_image_note(topic: str, persona: str = None, reference_text: str = None, model_name: str = "deepseek/deepseek-chat", search_data: dict = None) -> dict:
+def generate_image_note(topic: str, persona: str = None, reference_text: str = None, model_name: str = "deepseek/deepseek-chat", search_data: dict = None, temperature: float = 0.8) -> dict:
     """
     【图文模式】生成小红书图文笔记（长文案 + 配图提示词）
     
@@ -165,21 +188,67 @@ def generate_image_note(topic: str, persona: str = None, reference_text: str = N
 2. **口语化 & 碎碎念**：多用短句，适度重复表达激动，善用括号补充内心戏。
 3. **排版呼吸感**：每段不超过 3 行，关键金句独立成段，善用 Emoji 作为情绪标点。
 
+【严禁 AI 味套话 - 质量红线】
+以下表达一旦出现立即判定为不合格：
+- "众所周知"、"不得不说"、"可以说是"、"值得一提的是"
+- "在...方面"、"进行...操作"、"相关的..."
+- 空洞总结："总而言之"、"综上所述"、"由此可见"
+- 没有具体数字和时间的泛化描述（"很多"、"大量"、"经常"）
+- 机械式列举："首先...其次...最后..."（必须用口语化连接）
+
+【真实博主自检清单 - 必须全部满足】
+✓ 至少 2 处具体数字（如：涨粉 3000、连续 15 天、花了 2 小时）
+✓ 至少 1 处个人经历（我/我朋友/我同事的真实故事）
+✓ 至少 3 处强情绪词（绝了/太爱了/崩溃/yyds/救命）
+✓ 对话或内心独白至少 1 次（"我当时就想..."、"老板说..."）
+✓ 至少 1 处反问或自问自答（"你知道为什么吗？"、"是不是很离谱？"）
+
 【配图设计要求】
 设计 2-6 张配图，每张配图独立表达一个视觉主题。
-1. description：中文描述画面主体、场景、氛围，说明该图在文章中承担的角色
-2. prompt：中英混合生图提示词，包含主体、光影、构图、风格、氛围
+
+**穿搭风格要求**（职场主题）：
+- ✓ 推荐：针织衫、衬衫、T恤、牛仔裤、半身裙、休闲外套
+- ✗ 避免：正式西装、职业套装、领带、高跟鞋
+
+**背景场景要求**（职场主题）：
+- ✓ 推荐：现代办公室（开放式）、咖啡厅、休息区、会议室、窗边
+- ✓ 要求：真实感场景，自然光照，生活化氛围
+- ✗ 避免：过于正式的会议室、传统办公桌
+
+**图片生成字段要求**：
+1. description：中文描述画面主体、穿搭、场景、氛围，说明该图在文章中承担的角色
+2. sentiment：图片风格情感，职场主题建议使用"职场日常"
+3. prompt：生图提示词，必须包含：
+   - 人物：二次元女性角色
+   - 穿搭：具体描述（如"wearing casual cardigan and jeans"）
+   - 背景：具体场景（如"modern office with large windows"）
+   - 光照：natural lighting
+4. cover_text（仅第一张主图需要）：3-8个汉字的核心文案，用于叠加显示
+   - 要求：提炼文章核心观点或最吸睛的一句话
+   - 示例："职场穿搭自由"、"拒绝内耗"、"年终奖攻略"
 
 【输出格式】
 必须严格按照以下 JSON 结构输出，不要输出任何其他内容：
+
+**重要**：对话和引用必须使用中文引号「」，禁止使用英文双引号 "
+示例：❌ "老板说："加油""  ✅ "老板说：「加油」"
+
 {{
     "titles": ["标题1", "标题2", "标题3", "标题4", "标题5"],
-    "content": "不少于800字的深度正文内容，分段并包含emoji，用\\n表示换行",
+    "content": "不少于800字的深度正文内容，分段并包含emoji，用\\n表示换行，对话用中文引号「」",
     "image_designs": [
         {{
             "index": 1,
-            "description": "封面图：吸引眼球的主视觉",
-            "prompt": "生图提示词"
+            "description": "封面图：职场女性角色，穿休闲针织衫和牛仔裤，站在现代办公室窗边",
+            "sentiment": "职场日常",
+            "prompt": "anime style office girl wearing casual cardigan and jeans, modern office background with large windows, natural lighting",
+            "cover_text": "职场穿搭自由"
+        }},
+        {{
+            "index": 2,
+            "description": "配图描述",
+            "sentiment": "职场日常",
+            "prompt": "配图提示词"
         }}
     ]
 }}
@@ -188,7 +257,9 @@ def generate_image_note(topic: str, persona: str = None, reference_text: str = N
 1. 标题要有爆款潜力，使用数字、疑问句、惊叹句等吸睛技巧
 2. 正文必须深度详实，**字数不少于800字**，不能敷衍了事
 3. image_designs 数组包含 2-6 个元素
-4. JSON 字符串中必须用 \\n 表示换行，不要使用实际换行符"""
+4. **第一张图片（主图）必须包含 cover_text 字段**：3-8个汉字的核心文案
+5. 配图（第2-6张）不需要 cover_text 字段
+6. JSON 字符串中必须用 \\n 表示换行，不要使用实际换行符"""
 
     # 【深度演绎模式】User Prompt - 数据注入
     user_content = f"""当前热门选题信息如下：
@@ -204,10 +275,10 @@ def generate_image_note(topic: str, persona: str = None, reference_text: str = N
 哪怕大纲只有一句话，你也要通过举例、讲故事、列步骤，将其丰富成一段有血有肉的内容。
 只输出 JSON，不要其他内容。"""
 
-    return _call_llm_and_parse(system_prompt, user_content, topic, persona, model_name)
+    return _call_llm_and_parse(system_prompt, user_content, topic, persona, model_name, temperature)
 
 
-def generate_video_script(topic: str, persona: str = None, reference_text: str = None, model_name: str = "deepseek/deepseek-chat") -> dict:
+def generate_video_script(topic: str, persona: str = None, reference_text: str = None, model_name: str = "deepseek/deepseek-chat", temperature: float = 0.8) -> dict:
     """
     【视频模式】生成深度视频脚本（口播文稿 + 分镜画面 + 情感分析）
     
@@ -316,9 +387,12 @@ def generate_video_script(topic: str, persona: str = None, reference_text: str =
 
 【输出格式】
 必须严格按照以下 JSON 结构输出，不要输出任何其他内容：
+
+**重要**：对话和引用必须使用中文引号「」，禁止使用英文双引号 "
+
 {{
     "titles": ["标题1", "标题2", "标题3", "标题4", "标题5"],
-    "content": "200-300字视频简介，带emoji，说明观众能学到什么",
+    "content": "200-300字视频简介，带emoji，对话用中文引号「」",
     "visual_scenes": [
         {{
             "scene_index": 1,
@@ -350,10 +424,154 @@ def generate_video_script(topic: str, persona: str = None, reference_text: str =
 {reference_section}
 请创作深度解析视频脚本（时长不限，把逻辑讲清楚为第一优先级）。只输出 JSON，不要其他内容。"""
 
-    return _call_llm_and_parse(system_prompt, user_content, topic, persona, model_name)
+    return _call_llm_and_parse(system_prompt, user_content, topic, persona, model_name, temperature)
 
 
-def generate_note_package(topic: str, persona: str = None, reference_text: str = None, mode: str = "image", model_name: str = "deepseek/deepseek-chat", search_data: dict = None) -> dict:
+def generate_wechat_article(topic: str, persona: str = None, reference_text: str = None, model_name: str = "deepseek/deepseek-chat", search_data: dict = None, temperature: float = 0.8) -> dict:
+    """
+    【公众号模式】生成深度长文 + 架构图/示意图
+    
+    Args:
+        topic: 选题/主题
+        persona: 技术博主人设风格描述
+        reference_text: 参考内容（用于仿写）
+        model_name: OpenRouter 模型 ID
+        search_data: websearch 返回的完整热点数据
+        temperature: LLM 温度参数
+    
+    Returns:
+        {
+            'titles': [...],           # 5个备选标题
+            'content': '...',          # 深度长文（不限字数，建议2000-5000字）
+            'diagrams': [              # 架构图/示意图设计（2-4张）
+                {
+                    'index': 1,
+                    'title': '架构图标题',
+                    'description': '中文描述该图表达的技术架构',
+                    'diagram_type': 'architecture' | 'flow' | 'comparison',
+                    'prompt': '生图提示词（极客美学）'
+                },
+                ...
+            ]
+        }
+    """
+    reference_section = ""
+    if reference_text:
+        reference_section = f"""
+参考内容（请仿写其结构和风格）：
+---
+{reference_text}
+---
+"""
+
+    # 解析 search_data
+    search_data = search_data or {}
+    source = search_data.get('source', '未知来源')
+    original_title = search_data.get('title', topic)
+    why_hot = search_data.get('why_hot', '')
+    summary = search_data.get('summary', '')
+    outline = search_data.get('outline', [])
+    
+    # 格式化大纲
+    outline_text = ""
+    if outline and len(outline) > 0:
+        outline_text = json.dumps(outline, indent=2, ensure_ascii=False)
+
+    system_prompt = f"""你是{persona or '技术博主'}，专注于深度技术内容创作。
+你现在要为微信公众号创作一篇**深度技术长文**，字数不限，以把技术讲透为第一优先级。
+
+【核心要求】
+1. **深度优先**：必须符合'金字塔原理'，结构为：背景/痛点 → 现有方案局限 → 深度原理拆解 → 架构设计/代码思路 → 商业/未来价值
+2. **工程视角**：不仅讲算法原理，还要讲部署、成本、延迟优化、工程取舍
+3. **对比分析**：必须有 Pros & Cons 对比，或技术方案 A vs B 的横向对比
+4. **通俗化表达**：用类比和日常例子解释复杂概念（如：用'传话游戏'解释Transformer的Self-Attention机制）
+
+【文章结构要求】
+1. **标题**：硬核且吸引人，必须包含技术关键词。示例：《RAG已死？深度解析Long Context的工程边界》
+2. **正文**：
+   - 开头：抛出技术痛点或反直觉观点
+   - 中间：分层递进拆解（Why → What → How）
+   - 结尾：总结技术价值和未来展望
+   - **代码处理**：可以用文字描述代码逻辑，不要输出实际代码块
+3. **排版**：使用小标题（二级标题 ##）分段，关键概念**加粗**
+
+【架构图设计要求】
+必须设计 2-4 张架构图/示意图，用于可视化技术架构。
+
+每张图需包含：
+1. title：图表标题（如："RAG架构对比"）
+2. description：中文描述该图表达的技术概念、组件关系
+3. diagram_type：图表类型
+   - "architecture"：系统架构图（组件、模块、数据流）
+   - "flow"：流程图（步骤、决策树、时序）
+   - "comparison"：对比图（方案A vs B，优缺点对比）
+4. prompt：生图提示词（极客美学风格）
+   - 必须包含：cyberpunk style, dark background, neon accents
+   - 描述具体的技术组件、连接关系、数据流向
+   - 示例："cyberpunk system architecture, RAG pipeline with vector database, embedding model, and LLM, glowing data connections, dark blue background, neon highlights"
+
+【输出格式 - 严格遵守】
+**重要**：必须且只能输出纯 JSON 对象，不要用 ```json 包裹，不要输出任何代码块。
+
+**JSON 规范**：对话和引用必须使用中文引号「」，禁止使用英文双引号 "
+示例：❌ "老板说："加油""  ✅ "老板说：「加油」"
+
+输出格式：
+{{
+    "titles": ["标题1（必须包含技术关键词）", "标题2", "标题3", "标题4", "标题5"],
+    "content": "深度技术长文，不限字数，建议2000-5000字，用\\n表示换行，**关键概念**用markdown加粗，对话用中文引号「」。可以在文字中描述代码逻辑，但不要输出实际的 ```python 代码块。",
+    "diagrams": [
+        {{
+            "index": 1,
+            "title": "架构图标题",
+            "description": "中文描述该图表达的技术架构和组件关系",
+            "diagram_type": "architecture",
+            "prompt": "cyberpunk style system architecture, 具体组件描述, dark background, neon accents"
+        }}
+    ]
+}}
+
+**错误示范**（绝对禁止）：
+```json
+{{...}}
+```
+或者输出代码块：
+```python
+代码...
+```
+
+**正确示范**：
+直接输出 {{"titles": [...], "content": "...", "diagrams": [...]}}
+
+【写作规则】
+1. 标题要有技术深度和吸引力，避免标题党
+2. 正文必须深度详实，**建议2000-5000字**，把技术讲透
+3. diagrams 数组包含 2-4 个元素
+4. 每个 diagram 的 prompt 必须符合极客美学：深色背景、霓虹色、赛博朋克风格
+5. JSON 字符串中必须用 \\n 表示换行，不要使用实际换行符
+6. **绝对禁止**：不要输出 ```json、```python 等代码块，直接输出纯 JSON 对象"""
+
+    user_content = f"""当前技术选题信息如下：
+- 来源平台：{source}
+- 原始标题：{original_title}
+- 火爆原因：{why_hot}
+- 核心摘要：{summary}
+- 参考大纲：
+{outline_text}
+
+{reference_section}
+请创作一篇微信公众号深度技术文章，把这个技术话题讲透彻。
+
+**重要提醒**：
+1. 直接输出 JSON 对象，不要用 ```json 包裹
+2. 不要输出任何代码块（```python、```yaml 等）
+3. 代码逻辑用文字描述即可
+4. 只输出纯 JSON，格式如：{{"titles": [...], "content": "...", "diagrams": [...]}}"""
+
+    return _call_llm_and_parse(system_prompt, user_content, topic, persona, model_name, temperature)
+
+
+def generate_note_package(topic: str, persona: str = None, reference_text: str = None, mode: str = "image", model_name: str = "deepseek/deepseek-chat", search_data: dict = None, temperature: float = 0.8) -> dict:
     """
     统一入口：根据模式生成内容
     
@@ -361,14 +579,80 @@ def generate_note_package(topic: str, persona: str = None, reference_text: str =
         topic: 选题/主题
         persona: 博主人设风格描述
         reference_text: 参考内容
-        mode: "image"（图文模式）或 "video"（视频模式）
+        mode: "image"（图文模式）、"video"（视频模式）或 "wechat"（公众号模式）
         model_name: OpenRouter 模型 ID
-        search_data: websearch 返回的完整热点数据（图文模式使用）
+        search_data: websearch 返回的完整热点数据
     
     Returns:
         对应模式的内容结构
     """
     if mode == "video":
-        return generate_video_script(topic, persona, reference_text, model_name)
+        return generate_video_script(topic, persona, reference_text, model_name, temperature)
+    elif mode == "wechat":
+        return generate_wechat_article(topic, persona, reference_text, model_name, search_data, temperature)
     else:
-        return generate_image_note(topic, persona, reference_text, model_name, search_data)
+        return generate_image_note(topic, persona, reference_text, model_name, search_data, temperature)
+
+
+def generate_note_package_with_retry(
+    topic: str,
+    persona: str = None,
+    reference_text: str = None,
+    mode: str = "image",
+    model_name: str = "deepseek/deepseek-chat",
+    search_data: dict = None,
+    temperature: float = 0.8,
+    max_retries: int = 2,
+    quality_threshold: int = 70
+) -> dict:
+    """
+    带质量检测的生成函数
+    
+    如果生成的内容质量不达标，会自动重试（降低 temperature 提升稳定性）
+    
+    Args:
+        max_retries: 最大重试次数
+        quality_threshold: 质量分数阈值（0-100）
+        其他参数同 generate_note_package
+    
+    Returns:
+        生成结果（同 generate_note_package）
+    """
+    current_temp = temperature
+    
+    for attempt in range(max_retries + 1):
+        print(f"[Writer] 生成尝试 {attempt + 1}/{max_retries + 1}，temperature={current_temp:.2f}")
+        
+        result = generate_note_package(
+            topic=topic,
+            persona=persona,
+            reference_text=reference_text,
+            mode=mode,
+            model_name=model_name,
+            search_data=search_data,
+            temperature=current_temp
+        )
+        
+        # 只检测图文模式的正文质量（视频和公众号模式跳过）
+        if mode == "image" and result.get("content"):
+            quality = check_content_quality(result["content"])
+            print(f"[Quality] 评分: {quality['score']}/100")
+            
+            if quality["is_acceptable"]:
+                print("[Quality] ✅ 质量合格")
+                return result
+            
+            if attempt < max_retries:
+                print(f"[Quality] ❌ 质量不达标 ({quality['score']}分 < {quality_threshold}分)")
+                print(f"[Quality] 问题: {', '.join(quality['issues'])}")
+                print(f"[Quality] 准备重试...")
+                # 降低 temperature 提升稳定性
+                current_temp = max(0.5, current_temp - 0.15)
+            else:
+                print(f"[Quality] ⚠️ 已达最大重试次数，返回当前结果")
+                print(format_quality_report(quality))
+        else:
+            # 视频模式或无内容，直接返回
+            return result
+    
+    return result

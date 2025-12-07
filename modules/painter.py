@@ -1,8 +1,8 @@
 """
-生图模块 (Replicate + 火山引擎 Seedream + Google Gemini Imagen 3)
+生图模块 (Replicate + 火山引擎 Seedream + Google Nano Banana Pro)
 支持多种模式：
 - 视频模式：使用 Replicate 或豆包批量生成分镜图
-- 图文模式：主图用 Gemini Imagen 3 高质量生成，配图用豆包
+- 图文模式：主图用 Nano Banana Pro 超高质量生成，配图用豆包
 支持并发生成：ThreadPoolExecutor 加速批量处理
 支持主题命名：文件按主题组织
 """
@@ -31,7 +31,8 @@ ANIME_STYLES_EN = {
     "严肃深度": "anime style, seinen manga aesthetic, dark atmosphere, dramatic shadows, muted colors, serious expression, sharp lines, detailed background",
     "日常生活": "anime style, slice of life, natural lighting, detailed urban or home setting, warm colors, Kyoto Animation style",
     "热血励志": "anime style, shonen jump style, dynamic pose, intense effects, bright and vivid colors, determined expression, speed lines",
-    "悲伤低沉": "anime style, melancholic atmosphere, rain, cold colors, lonely character, emotional, tearful, shallow depth of field"
+    "悲伤低沉": "anime style, melancholic atmosphere, rain, cold colors, lonely character, emotional, tearful, shallow depth of field",
+    "职场日常": "anime style, modern office girl, casual business outfit (cardigan, blouse, skirt or jeans), realistic modern office or cafe background, natural lighting, slice of life, detailed environment, professional but casual, warm atmosphere, urban setting, detailed"
 }
 
 BASE_NEGATIVE_EN = "low quality, ugly, deformed, bad anatomy, extra fingers, watermark, text, blurry, disfigured, malformed limbs, extra limbs, missing arms, missing legs, fused fingers, too many fingers, long neck"
@@ -45,7 +46,8 @@ ANIME_STYLES_CN = {
     "严肃深度": "二次元动漫风格，青年漫画美学，暗色氛围，戏剧性阴影，沉稳色调，严肃表情，锐利线条，精细背景",
     "日常生活": "二次元动漫风格，日常番风格，自然光照，都市或家居场景，温暖色调，京阿尼风格，生活气息",
     "热血励志": "二次元动漫风格，少年漫画风格，动感姿势，强烈特效，明亮鲜艳色彩，坚定表情，速度线",
-    "悲伤低沉": "二次元动漫风格，忧郁氛围，雨天，冷色调，孤独角色，情感充沛，泪眼，浅景深"
+    "悲伤低沉": "二次元动漫风格，忧郁氛围，雨天，冷色调，孤独角色，情感充沛，泪眼，浅景深",
+    "职场日常": "二次元动漫风格，现代职场女性，生活化商务穿搭（针织衫、衬衫、半身裙或牛仔裤），真实感现代办公室或咖啡厅背景，自然光照，日常番风格，精细环境描绘，职业但休闲，温暖氛围，都市场景"
 }
 
 NEGATIVE_PROMPT_CN = "文字，字母，拼音，水印，logo，签名，用户名，错误，低质量，模糊，变形，多余手指，解剖错误，畸形"
@@ -56,6 +58,23 @@ DEFAULT_STYLE_CN = "二次元动漫风格，高质量，精细绘制，鲜艳色
 ANIME_STYLES = ANIME_STYLES_EN
 BASE_NEGATIVE = BASE_NEGATIVE_EN
 DEFAULT_STYLE = DEFAULT_STYLE_EN
+
+# ========== 极客美学风格库（用于公众号架构图）==========
+
+GEEK_STYLES_EN = {
+    "architecture": "cyberpunk style, system architecture diagram, glowing nodes and connections, dark blue/purple background, neon accents, futuristic tech aesthetic, holographic UI elements, detailed technical diagram, 4k, sharp focus",
+    "flow": "dark mode technical diagram, data flow visualization, glowing arrows and boxes, minimalist cyber aesthetic, dark background with bright neon highlights, clean information design, professional tech illustration",
+    "comparison": "tech comparison infographic, split view design, dark background, neon color coding (electric blue vs orange), modern UI style, clean and professional, side-by-side comparison, glowing divider line"
+}
+
+GEEK_STYLES_CN = {
+    "architecture": "赛博朋克风格，系统架构图，发光节点和连接线，深蓝紫色背景，霓虹灯强调色，未来科技美学，全息UI元素，精细技术示意图，高清画质，锐利焦点",
+    "flow": "深色模式技术示意图，数据流可视化，发光箭头和方框，极简赛博美学，深色背景带明亮霓虹高光，清爽信息设计，专业技术插画",
+    "comparison": "科技对比信息图，分屏设计，深色背景，霓虹色彩编码（电蓝vs橙色），现代UI风格，清爽专业，并排对比，发光分割线"
+}
+
+GEEK_NEGATIVE_EN = "low quality, blurry, text, letters, watermark, messy, cluttered, amateur, cartoon style, bright background, colorful chaos"
+GEEK_NEGATIVE_CN = "低质量，模糊，文字，水印，杂乱，业余，卡通风格，明亮背景，混乱配色"
 
 
 # ========== Prompt 组装 ==========
@@ -259,10 +278,15 @@ def _generate_single_volcengine(scene: dict, index: int, output_dir: Path = None
 
 def _generate_single_gemini(scene: dict, index: int, output_dir: Path = None, topic: str = None) -> Tuple[Optional[str], Optional[str]]:
     """
-    使用 Replicate 调用 Google Gemini 2.5 Flash Image 生成高质量图片（适合主图/封面图）
+    使用 Replicate 调用 Google Nano Banana Pro 生成超高质量图片（适合主图/封面图）
+    
+    Nano Banana Pro 基于 Gemini 3 Pro，提供：
+    - 4K 高分辨率输出
+    - 更准确的文字渲染
+    - 更好的创意控制和细节表现
     
     Args:
-        scene: 分镜字典，包含 prompt
+        scene: 分镜字典，包含 prompt 和可选的 cover_text（主图文字）
         index: 场景索引
         output_dir: 输出目录
         topic: 主题名称
@@ -274,27 +298,44 @@ def _generate_single_gemini(scene: dict, index: int, output_dir: Path = None, to
     
     try:
         base_prompt = scene.get('prompt', '')
+        cover_text = scene.get('cover_text', '')
+        
         if not base_prompt:
             return None, "prompt 为空"
         
-        # Gemini 使用英文 prompt 效果更好，添加高质量修饰词
-        enhanced_prompt = f"Generate an image: High quality, professional illustration, masterpiece, best quality, {base_prompt}, detailed, 4k, sharp focus"
+        # 构建增强 prompt
+        if cover_text:
+            # 主图：包含文字叠加 + 白色背景
+            enhanced_prompt = f"""Generate a clean anime-style illustration with white/cream background:
+- Main visual: {base_prompt}
+- Background: White or off-white color, minimal and clean design
+- Text overlay in center: "{cover_text}" in bold modern Chinese font, dark color for readability
+- Style: Professional poster design, high quality, masterpiece, 4k, sharp focus
+- Atmosphere: Light and bright, fresh and clean, minimalist composition
+- Color scheme: Pastel and soft colors, avoid dark or saturated backgrounds"""
+            
+            print(f"[Nano Banana Pro] 主图 {index+1} 生成中（带文字: {cover_text}）...")
+        else:
+            # 配图：原有逻辑
+            enhanced_prompt = f"Generate an image: High quality, professional illustration, masterpiece, best quality, {base_prompt}, detailed, 4k, sharp focus"
+            print(f"[Nano Banana Pro] 图片 {index+1} 生成中...")
         
-        print(f"[Gemini] 主图 {index+1} 生成中...")
-        print(f"[Gemini] Prompt: {enhanced_prompt[:100]}...")
+        print(f"[Nano Banana Pro] Prompt: {enhanced_prompt[:100]}...")
         
-        # 通过 Replicate 调用 Gemini 2.5 Flash Image
+        # 通过 Replicate 调用 Google Nano Banana Pro
         output = replicate.run(
-            "google/gemini-2.5-flash-image",
+            "google/nano-banana-pro",
             input={
                 "prompt": enhanced_prompt,
                 "aspect_ratio": "3:4",  # 小红书竖图比例
+                "output_format": "png",  # 高质量输出
+                "output_quality": 100,
             }
         )
         
         # Replicate 返回的是 FileOutput 对象或 URL
         if not output:
-            return None, "Gemini 未返回图片"
+            return None, "Nano Banana Pro 未返回图片"
         
         # 获取图片 URL
         if hasattr(output, 'url'):
@@ -304,7 +345,7 @@ def _generate_single_gemini(scene: dict, index: int, output_dir: Path = None, to
         elif isinstance(output, list) and len(output) > 0:
             image_url = output[0].url if hasattr(output[0], 'url') else str(output[0])
         else:
-            return None, f"无法解析 Gemini 返回: {type(output)}"
+            return None, f"无法解析 Nano Banana Pro 返回: {type(output)}"
         
         # 下载图片
         resp = requests.get(image_url, timeout=60)
@@ -324,13 +365,13 @@ def _generate_single_gemini(scene: dict, index: int, output_dir: Path = None, to
         if topic:
             oss_url = upload_to_oss_by_topic(image_data, topic, filename, "images")
         
-        print(f"[Gemini] 主图 {index+1} 完成: {local_path}")
+        print(f"[Nano Banana Pro] 主图 {index+1} 完成: {local_path}")
         # 优先返回 OSS URL，否则返回本地路径
         return oss_url or local_path, None
         
     except Exception as e:
         error_msg = str(e)
-        print(f"[Gemini Error] 主图 {index+1} 失败: {error_msg}")
+        print(f"[Nano Banana Pro Error] 主图 {index+1} 失败: {error_msg}")
         return None, error_msg
 
 
@@ -349,7 +390,7 @@ def generate_images(scenes: list, provider: str = "replicate", anime_model: str 
     
     Args:
         scenes: 分镜列表，每个元素需包含 'prompt' 字段，可选 'sentiment'
-        provider: "replicate" 或 "volcengine"
+        provider: "replicate"、"volcengine" 或 "gemini"
         anime_model: 二次元模型选择 "anything-v4" 或 "flux-anime"（仅 replicate 生效）
         topic: 主题名称（用于创建子目录和文件命名）
     
@@ -376,6 +417,8 @@ def generate_images(scenes: list, provider: str = "replicate", anime_model: str 
                 path, error = _generate_single_anime(scene, index, anime_model, output_dir, topic)
             elif provider == "volcengine":
                 path, error = _generate_single_volcengine(scene, index, output_dir, topic)
+            elif provider == "gemini":
+                path, error = _generate_single_gemini(scene, index, output_dir, topic)
             else:
                 print(f"[Painter Error] 未知的 provider: {provider}")
                 return index, None
@@ -409,9 +452,9 @@ def generate_images(scenes: list, provider: str = "replicate", anime_model: str 
 
 def generate_images_mixed(scenes: list, topic: str = None) -> list:
     """
-    图文模式专用：主图用 Gemini Imagen 3，配图用豆包
+    图文模式专用：主图用 Nano Banana Pro，配图用豆包
     
-    第一张图（封面/主图）使用 Google Gemini Imagen 3 生成高质量图片
+    第一张图（封面/主图）使用 Google Nano Banana Pro 生成超高质量图片
     其余配图使用火山引擎豆包 Seedream 生成
     
     Args:
@@ -434,15 +477,15 @@ def generate_images_mixed(scenes: list, topic: str = None) -> list:
     results = [None] * len(scenes)
     
     print(f"[Painter Mixed] 开始混合生成 {len(scenes)} 张图片...")
-    print(f"[Painter Mixed] 主图: Gemini Imagen 3 | 配图: 豆包 Seedream")
+    print(f"[Painter Mixed] 主图: Nano Banana Pro | 配图: 豆包 Seedream")
     
-    # 1. 生成主图（第一张，使用 Gemini）
+    # 1. 生成主图（第一张，使用 Nano Banana Pro）
     if len(scenes) > 0:
-        print(f"\n[Painter Mixed] === 生成主图 (Gemini) ===")
+        print(f"\n[Painter Mixed] === 生成主图 (Nano Banana Pro) ===")
         path, error = _generate_single_gemini(scenes[0], 0, output_dir, topic)
         results[0] = path
         if error:
-            print(f"[Painter Mixed] 主图 Gemini 失败，降级到豆包: {error}")
+            print(f"[Painter Mixed] 主图 Nano Banana Pro 失败，降级到豆包: {error}")
             # 降级到豆包
             path, error = _generate_single_volcengine(scenes[0], 0, output_dir, topic)
             results[0] = path
@@ -482,6 +525,62 @@ def generate_images_mixed(scenes: list, topic: str = None) -> list:
     return results
 
 
+def generate_diagrams(diagrams: list, topic: str = None, provider: str = "volcengine") -> list:
+    """
+    公众号专用：生成架构图/示意图（极客美学风格）
+    
+    使用火山引擎豆包生成技术架构图、流程图、对比图
+    
+    Args:
+        diagrams: 架构图设计列表，每个元素需包含 'prompt' 和 'diagram_type'
+        topic: 主题名称（用于文件命名）
+        provider: 生图服务（默认 volcengine，推荐用于中文技术图）
+    
+    Returns:
+        本地图片路径列表（顺序与 diagrams 一致，失败项为 None）
+    """
+    if not diagrams:
+        return []
+    
+    # 创建主题目录
+    if topic:
+        output_dir = get_unique_dir(DEFAULT_OUTPUT_DIR, topic)
+        print(f"[Diagrams] 输出目录: {output_dir}")
+    else:
+        output_dir = DEFAULT_OUTPUT_DIR
+    
+    print(f"[Diagrams] 开始生成 {len(diagrams)} 张架构图（极客美学）...")
+    
+    # 转换为标准 scene 格式，添加极客美学风格
+    scenes_with_style = []
+    for diagram in diagrams:
+        base_prompt = diagram.get('prompt', '')
+        diagram_type = diagram.get('diagram_type', 'architecture')
+        
+        # 根据类型应用风格
+        if provider == "volcengine":
+            style = GEEK_STYLES_CN.get(diagram_type, GEEK_STYLES_CN['architecture'])
+            final_prompt = f"{style}，{base_prompt}"
+        else:
+            style = GEEK_STYLES_EN.get(diagram_type, GEEK_STYLES_EN['architecture'])
+            final_prompt = f"{style}, {base_prompt}"
+        
+        scenes_with_style.append({
+            'prompt': final_prompt,
+            'sentiment': diagram_type  # 用 sentiment 字段传递 type
+        })
+    
+    # 调用批量生成（复用现有逻辑）
+    results = generate_images(
+        scenes=scenes_with_style,
+        provider=provider,
+        anime_model="flux-anime",  # 架构图用 Flux（更适合技术图）
+        topic=topic
+    )
+    
+    return results
+
+
 def generate_single_image(scene: dict, index: int, provider: str = "replicate", anime_model: str = "anything-v4", output_dir: Path = None, topic: str = None) -> Tuple[Optional[str], Optional[str]]:
     """
     生成单张图片（用于重试）
@@ -489,7 +588,7 @@ def generate_single_image(scene: dict, index: int, provider: str = "replicate", 
     Args:
         scene: 分镜字典，需包含 'prompt' 字段，可选 'sentiment'
         index: 场景索引（0-based）
-        provider: "replicate" 或 "volcengine"
+        provider: "replicate"、"volcengine" 或 "gemini"
         anime_model: 二次元模型选择（仅 replicate 生效）
         output_dir: 输出目录（为空则使用默认）
         topic: 主题名称
@@ -503,6 +602,8 @@ def generate_single_image(scene: dict, index: int, provider: str = "replicate", 
         return _generate_single_anime(scene, index, anime_model, output_dir, topic)
     elif provider == "volcengine":
         return _generate_single_volcengine(scene, index, output_dir, topic)
+    elif provider == "gemini":
+        return _generate_single_gemini(scene, index, output_dir, topic)
     else:
         return None, f"未知的 provider: {provider}"
 

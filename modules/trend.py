@@ -5,10 +5,12 @@
 import os
 import json
 import re
+from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
 
-load_dotenv()
+# 加载项目根目录的 .env 文件
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 # 火山引擎方舟客户端（支持联网搜索）
 ark_client = OpenAI(
@@ -17,7 +19,7 @@ ark_client = OpenAI(
 )
 
 
-def analyze_trends(niche: str) -> tuple[list, str]:
+def analyze_trends(niche: str, force_fallback: bool = False) -> tuple[list, str]:
     """
     根据赛道分析小红书热门选题（基于实时联网搜索）
     返回热点详情 + 内容大纲，用于后续基于大纲生成笔记
@@ -37,6 +39,12 @@ def analyze_trends(niche: str) -> tuple[list, str]:
             }
         - source: 数据来源标记 "websearch" | "fallback" | "error"
     """
+    # 快速模式：直接返回 LLM 推荐，跳过联网搜索
+    if force_fallback:
+        print(f"[Trend] 快速模式：直接 LLM 推荐")
+        return _fallback_analyze(niche)
+    
+    print(f"[Trend] 联网搜索模式")
     search_prompt = f"""请搜索小红书上关于「{niche}」的最新热门笔记和爆款内容。
 
 你的任务是找到小红书上真正火爆的笔记，分析它们为什么火，并提取出内容大纲。
@@ -123,32 +131,39 @@ def _parse_topics_json(text: str) -> list:
 
 def _fallback_analyze(niche: str) -> tuple[list, str]:
     """
-    降级方案：不使用联网搜索，直接让模型生成选题
+    降级方案：不使用联网搜索，直接让模型生成选题（使用 OpenRouter，更快）
     """
     try:
-        response = ark_client.chat.completions.create(
-            model="doubao-seed-1-6-250615",
+        from openai import OpenAI
+        
+        # 使用 OpenRouter（速度快）
+        client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=os.getenv("OPENROUTER_API_KEY"),
+        )
+        
+        response = client.chat.completions.create(
+            model="deepseek/deepseek-chat",  # 快速且便宜
             max_tokens=2048,
+            temperature=0.7,
             messages=[{
                 "role": "user", 
-                "content": f"""你是一位资深的小红书数据分析师。
-
-请根据赛道「{niche}」，基于你对小红书平台的了解，输出 10 个可能火爆的选题。
+                "content": f"""你是小红书数据分析师。根据关键词「{niche}」，推荐 10 个爆款选题。
 
 每个选题包含：
-1. title: 选题标题（具体、有爆款潜力）
+1. title: 选题标题（20字以内）
 2. source: 内容类型（如：经验分享、情绪吐槽、干货教程）
-3. summary: 内容方向描述（50-100字）
-4. outline: 建议的内容大纲（3-5个要点）
-5. why_hot: 为什么可能火（击中什么情绪/痛点）
+3. summary: 内容描述（50-100字）
+4. outline: 内容大纲（3-5个要点，每个15字以内）
+5. why_hot: 为什么可能火（30字以内）
 
-必须严格输出 JSON 格式：
+直接输出 JSON 数组，格式：
 [
     {{
         "title": "选题标题",
         "source": "经验分享",
         "summary": "内容描述...",
-        "outline": ["大纲点1", "大纲点2", "大纲点3"],
+        "outline": ["要点1", "要点2", "要点3"],
         "why_hot": "击中的情绪点"
     }}
 ]"""

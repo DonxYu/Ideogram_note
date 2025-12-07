@@ -10,8 +10,6 @@ import {
   Eye,
   Image as ImageIcon,
   Mic,
-  Download,
-  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -25,46 +23,143 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { useWorkflowStore } from "@/store/workflow";
-import { exportNote } from "@/lib/api";
+import { GenerateResponse } from "@/lib/api";
 import { toast } from "sonner";
 
+// Dual Model Comparison Card Component
+function DualModelCard({
+  model,
+  content,
+  version,
+  isSelected,
+  onSelect,
+}: {
+  model: string;
+  content: GenerateResponse;
+  version: 'model1' | 'model2';
+  isSelected: boolean;
+  onSelect: () => void;
+}) {
+  const modelName = model.split('/').pop() || model;
+  const [copiedType, setCopiedType] = useState<'title' | 'content' | null>(null);
+
+  const copyToClipboard = async (text: string, type: 'title' | 'content') => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedType(type);
+      toast.success("已复制到剪贴板");
+      setTimeout(() => setCopiedType(null), 2000);
+    } catch {
+      toast.error("复制失败");
+    }
+  };
+  
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className={cn(
+        "relative p-6 rounded-xl border-2 transition-all",
+        isSelected
+          ? "border-primary bg-primary/5 shadow-lg"
+          : "border-border bg-card hover:border-primary/50"
+      )}
+    >
+      {/* Model Badge */}
+      <div className="flex items-center justify-between mb-4">
+        <Badge variant={isSelected ? "default" : "outline"} className="text-xs">
+          {modelName}
+        </Badge>
+        <Button
+          size="sm"
+          variant={isSelected ? "default" : "outline"}
+          onClick={onSelect}
+          className="gap-2"
+        >
+          {isSelected ? (
+            <>
+              <Check className="w-3 h-3" />
+              已选择
+            </>
+          ) : (
+            "选择此版本"
+          )}
+        </Button>
+      </div>
+
+      {/* Title Preview */}
+      <div className="space-y-2 mb-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-medium text-muted-foreground">标题预览</h3>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 gap-1"
+            onClick={() => copyToClipboard(content.titles[0], 'title')}
+          >
+            {copiedType === 'title' ? (
+              <Check className="w-3 h-3 text-green-500" />
+            ) : (
+              <Copy className="w-3 h-3" />
+            )}
+            <span className="text-xs">复制</span>
+          </Button>
+        </div>
+        <p className="text-base font-medium line-clamp-2">{content.titles[0]}</p>
+      </div>
+
+      {/* Content Preview */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-medium text-muted-foreground">正文预览</h3>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 gap-1"
+            onClick={() => copyToClipboard(content.content, 'content')}
+          >
+            {copiedType === 'content' ? (
+              <Check className="w-3 h-3 text-green-500" />
+            ) : (
+              <Copy className="w-3 h-3" />
+            )}
+            <span className="text-xs">复制</span>
+          </Button>
+        </div>
+        <ScrollArea className="h-[300px] rounded-lg border p-3 bg-secondary/30">
+          <p className="text-sm whitespace-pre-wrap leading-relaxed">
+            {content.content}
+          </p>
+        </ScrollArea>
+      </div>
+
+      {/* Stats */}
+      <div className="mt-4 pt-4 border-t flex gap-4 text-xs text-muted-foreground">
+        <span>{content.titles.length} 个标题</span>
+        <span>{content.content.length} 字</span>
+        {content.image_designs && <span>{content.image_designs.length} 张配图</span>}
+        {content.visual_scenes && <span>{content.visual_scenes.length} 个分镜</span>}
+      </div>
+    </motion.div>
+  );
+}
+
 export function ContentPreview() {
-  const { mode, generatedContent, selectedTitleIndex, setSelectedTitleIndex, setStep, selectedTopic, imageResults } =
-    useWorkflowStore();
+  const {
+    mode,
+    generatedContent,
+    selectedTitleIndex,
+    setSelectedTitleIndex,
+    setStep,
+    dualResults,
+    selectedVersion,
+    setSelectedVersion,
+    selectedModel,
+    secondModel,
+  } = useWorkflowStore();
 
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [expandedScene, setExpandedScene] = useState<number | null>(0);
-  const [isExporting, setIsExporting] = useState(false);
-
-  const handleExportNote = async () => {
-    if (!generatedContent || !selectedTopic) return;
-    
-    setIsExporting(true);
-    try {
-      const title = generatedContent.titles[selectedTitleIndex] || generatedContent.titles[0];
-      const imageUrls = imageResults
-        .filter((r) => r?.url)
-        .map((r) => r.url as string);
-      
-      const response = await exportNote({
-        topic: selectedTopic.title,
-        title,
-        content: generatedContent.content,
-        image_urls: imageUrls.length > 0 ? imageUrls : undefined,
-        tags: ["小红书", selectedTopic.source || "自动生成"],
-      });
-      
-      if (response.success) {
-        toast.success("笔记已导出到 Obsidian");
-      } else {
-        toast.error("导出失败: " + (response.error || "未知错误"));
-      }
-    } catch (error) {
-      toast.error("导出失败: " + (error as Error).message);
-    } finally {
-      setIsExporting(false);
-    }
-  };
 
   const copyToClipboard = async (text: string, index: number) => {
     try {
@@ -78,7 +173,7 @@ export function ContentPreview() {
   };
 
   // Disabled state
-  if (!generatedContent) {
+  if (!generatedContent && !dualResults) {
     return (
       <section className="space-y-6 opacity-50">
         <div className="flex items-center gap-3">
@@ -99,9 +194,65 @@ export function ContentPreview() {
       </section>
     );
   }
+  
+  // Dual model comparison view
+  if (dualResults) {
+    return (
+      <section className="space-y-6">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10">
+            <Eye className="w-4 h-4 text-primary" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold">双模型对比</h2>
+            <p className="text-sm text-muted-foreground">
+              选择更优版本继续制作
+            </p>
+          </div>
+        </div>
 
-  const { titles, content, image_designs, visual_scenes } = generatedContent;
-  const scenes = mode === "video" ? visual_scenes : image_designs;
+        <div className="grid grid-cols-2 gap-6">
+          {/* Model 1 */}
+          <DualModelCard
+            model={selectedModel}
+            content={dualResults.model1}
+            version="model1"
+            isSelected={selectedVersion === 'model1'}
+            onSelect={() => setSelectedVersion('model1')}
+          />
+
+          {/* Model 2 */}
+          <DualModelCard
+            model={secondModel}
+            content={dualResults.model2}
+            version="model2"
+            isSelected={selectedVersion === 'model2'}
+            onSelect={() => setSelectedVersion('model2')}
+          />
+        </div>
+
+        <div className="flex gap-3">
+          <Button
+            variant="outline"
+            onClick={() => setStep("persona")}
+            className="flex-1"
+          >
+            重新生成
+          </Button>
+          <Button
+            onClick={() => setStep("studio")}
+            className="flex-1 gap-2"
+          >
+            继续制作 ({selectedVersion === 'model1' ? selectedModel.split('/').pop() : secondModel.split('/').pop()})
+            <ChevronRight className="w-4 h-4" />
+          </Button>
+        </div>
+      </section>
+    );
+  }
+
+  const { titles, content, image_designs, visual_scenes, diagrams } = generatedContent;
+  const scenes = mode === "video" ? visual_scenes : mode === "wechat" ? diagrams : image_designs;
   const charCount = content.replace(/\s/g, "").length;
 
   return (
@@ -117,36 +268,23 @@ export function ContentPreview() {
             <p className="text-sm text-muted-foreground">
               {mode === "video"
                 ? "查看视频脚本和分镜设计"
+                : mode === "wechat"
+                ? "查看文章正文和架构图设计"
                 : "查看图文内容和配图方案"}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={handleExportNote}
-            disabled={isExporting || !selectedTopic}
-            className="gap-2"
-          >
-            {isExporting ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Download className="w-4 h-4" />
-            )}
-            导出笔记
-          </Button>
         <Button onClick={() => setStep("studio")} className="gap-2">
           下一步
           <ChevronRight className="w-4 h-4" />
         </Button>
-        </div>
       </div>
 
       <Tabs defaultValue="content" className="w-full">
         <TabsList className="grid w-full grid-cols-2 h-10">
           <TabsTrigger value="content" className="gap-2">
             <FileText className="w-4 h-4" />
-            {mode === "video" ? "脚本简介" : "正文内容"}
+            {mode === "video" ? "脚本简介" : mode === "wechat" ? "文章正文" : "正文内容"}
           </TabsTrigger>
           <TabsTrigger value="scenes" className="gap-2">
             {mode === "video" ? (
@@ -154,7 +292,11 @@ export function ContentPreview() {
             ) : (
               <ImageIcon className="w-4 h-4" />
             )}
-            {mode === "video" ? `分镜 (${visual_scenes?.length || 0})` : `配图 (${image_designs?.length || 0})`}
+            {mode === "video" 
+              ? `分镜 (${visual_scenes?.length || 0})` 
+              : mode === "wechat"
+              ? `架构图 (${diagrams?.length || 0})`
+              : `配图 (${image_designs?.length || 0})`}
           </TabsTrigger>
         </TabsList>
 
@@ -244,6 +386,7 @@ export function ContentPreview() {
               {scenes?.map((scene, i) => {
                 const isExpanded = expandedScene === i;
                 const isVideoScene = mode === "video" && "narration" in scene;
+                const isDiagram = mode === "wechat" && "title" in scene;
 
                 return (
                   <Collapsible
@@ -261,10 +404,20 @@ export function ContentPreview() {
                       <CollapsibleTrigger className="w-full">
                         <div className="flex items-center gap-3 p-3 hover:bg-secondary/30 transition-colors">
                           <Badge variant="outline" className="shrink-0">
-                            {i + 1}
+                            {isDiagram && (scene as any).diagram_type ? (
+                              <span className="text-xs">
+                                {(scene as any).diagram_type === "architecture" ? "架构" : (scene as any).diagram_type === "flow" ? "流程" : "对比"}
+                              </span>
+                            ) : (
+                              i + 1
+                            )}
                           </Badge>
                           <div className="flex-1 text-left min-w-0">
-                            {isVideoScene ? (
+                            {isDiagram ? (
+                              <p className="text-sm font-medium text-foreground truncate">
+                                {(scene as any).title || (scene as { description: string }).description}
+                              </p>
+                            ) : isVideoScene ? (
                               <p className="text-sm text-foreground truncate">
                                 {(scene as { narration: string }).narration}
                               </p>
@@ -287,6 +440,18 @@ export function ContentPreview() {
                       <CollapsibleContent>
                         <div className="px-3 pb-3 pt-0 border-t border-border/50">
                           <div className="pt-3 space-y-3">
+                            {/* Diagram Title (Wechat Mode) */}
+                            {isDiagram && (scene as any).title && (
+                              <div className="space-y-1">
+                                <label className="text-xs font-medium text-muted-foreground">
+                                  架构图标题
+                                </label>
+                                <p className="text-sm font-medium text-foreground">
+                                  {(scene as any).title}
+                                </p>
+                              </div>
+                            )}
+
                             {/* Narration (Video Mode) */}
                             {isVideoScene && (
                               <div className="space-y-1">
@@ -302,7 +467,7 @@ export function ContentPreview() {
                             {/* Description */}
                             <div className="space-y-1">
                               <label className="text-xs font-medium text-muted-foreground">
-                                画面描述
+                                {isDiagram ? "技术描述" : "画面描述"}
                               </label>
                               <p className="text-sm text-foreground">
                                 {(scene as { description: string }).description}

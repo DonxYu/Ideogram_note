@@ -3,6 +3,7 @@
 import { useWorkflowStore } from "@/store/workflow";
 import { Badge } from "@/components/ui/badge";
 import { FileText, Video } from "lucide-react";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export function Header() {
   const { mode, selectedTopic, generatedContent } = useWorkflowStore();
@@ -30,6 +31,7 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-4">
+        <ThemeToggle />
         <span className="text-sm text-muted-foreground">{getStatusText()}</span>
         {selectedTopic && (
           <Badge variant="outline" className="max-w-[200px] truncate">

@@ -14,6 +14,7 @@ import {
   Loader2,
   RotateCcw,
   RefreshCw,
+  Brain,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,8 @@ import {
 import { useWorkflowStore } from "@/store/workflow";
 import { analyzeTopics } from "@/lib/api";
 import { toast } from "sonner";
+import { StepProgress, type Step } from "@/components/ui/step-progress";
+import { simulateStepProgress, createDefaultSteps } from "@/lib/progress-utils";
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -57,29 +60,60 @@ export function TopicRadar() {
   } = useWorkflowStore();
 
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+  const [analysisSteps, setAnalysisSteps] = useState<Step[]>([]);
+  const [searchMode, setSearchMode] = useState<"websearch" | "llm">("llm");
 
-  const handleAnalyze = async () => {
+  const handleAnalyze = async (mode?: "websearch" | "llm") => {
+    const actualMode = mode || searchMode;
+    
     if (!keyword.trim()) {
       toast.error("请输入关键词");
       return;
     }
 
+    // 根据模式调整进度步骤
+    const steps = actualMode === "llm"
+      ? createDefaultSteps([
+          { label: "LLM 分析关键词...", time: 3 },
+          { label: "推荐热门选题...", time: 5 },
+        ])
+      : createDefaultSteps([
+          { label: "正在分析关键词...", time: 3 },
+          { label: "搜索热门话题...", time: 12 },
+          { label: "提取大纲要点...", time: 8 },
+          { label: "分析火爆原因...", time: 7 },
+        ]);
+    
+    setAnalysisSteps(steps);
     setIsAnalyzing(true);
-    try {
-      const response = await analyzeTopics(keyword.trim());
-      setTopics(response.topics, response.source);
 
-      if (response.source === "websearch") {
-        toast.success("已获取实时热点数据");
-      } else if (response.source === "fallback") {
-        toast.warning("联网搜索失败，使用 AI 推测模式");
-      } else {
-        toast.error("获取热点失败，请重试");
-      }
+    const { promise } = simulateStepProgress({
+      steps,
+      onStepChange: setAnalysisSteps,
+      actualTask: async () => {
+        const response = await analyzeTopics(keyword.trim(), actualMode);
+        setTopics(response.topics, response.source);
+
+        if (response.source === "llm" || response.source.includes("llm")) {
+          toast.success("AI 快速推荐完成");
+        } else if (response.source === "websearch" || response.source.includes("websearch")) {
+          toast.success("已获取实时热点数据");
+        } else if (response.source === "fallback") {
+          toast.warning("联网搜索失败，使用 AI 推测模式");
+        } else {
+          toast.error("获取热点失败，请重试");
+        }
+      },
+    });
+
+    try {
+      await promise;
     } catch (error) {
       toast.error("分析失败: " + (error as Error).message);
     } finally {
       setIsAnalyzing(false);
+      // 清空进度步骤（延迟一秒让用户看到完成状态）
+      setTimeout(() => setAnalysisSteps([]), 1000);
     }
   };
 
@@ -122,16 +156,30 @@ export function TopicRadar() {
           />
         </div>
         <Button
-          onClick={handleAnalyze}
+          onClick={() => handleAnalyze("llm")}
           disabled={isAnalyzing || !keyword.trim()}
+          variant={searchMode === "llm" ? "default" : "secondary"}
           className="h-11 px-6 gap-2"
         >
           {isAnalyzing ? (
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
-            <Sparkles className="w-4 h-4" />
+            <Brain className="w-4 h-4" />
           )}
-          {isAnalyzing ? "分析中..." : "开始分析"}
+          {isAnalyzing ? "推荐中..." : "AI推荐"}
+        </Button>
+        <Button
+          onClick={() => handleAnalyze("websearch")}
+          disabled={isAnalyzing || !keyword.trim()}
+          variant={searchMode === "websearch" ? "default" : "secondary"}
+          className="h-11 px-6 gap-2"
+        >
+          {isAnalyzing ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Globe className="w-4 h-4" />
+          )}
+          {isAnalyzing ? "搜索中..." : "实时搜索"}
         </Button>
         <Button
           variant="outline"
@@ -143,6 +191,18 @@ export function TopicRadar() {
           重置
         </Button>
       </div>
+
+      {/* Analysis Progress */}
+      {analysisSteps.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: "auto" }}
+          exit={{ opacity: 0, height: 0 }}
+          className="p-6 rounded-xl border bg-card"
+        >
+          <StepProgress steps={analysisSteps} />
+        </motion.div>
+      )}
 
       {/* Topics List */}
       <AnimatePresence mode="wait">

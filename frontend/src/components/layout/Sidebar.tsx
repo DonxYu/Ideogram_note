@@ -14,6 +14,7 @@ import {
   Brain,
   Moon,
   Sun,
+  BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -155,6 +156,25 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
               </TooltipTrigger>
               {collapsed && <TooltipContent side="right">视频模式</TooltipContent>}
             </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={mode === "wechat" ? "secondary" : "ghost"}
+                  size={collapsed ? "icon" : "sm"}
+                  onClick={() => setMode("wechat")}
+                  className={cn(
+                    "flex-1 justify-start gap-2",
+                    collapsed && "w-10 h-10 justify-center",
+                    mode === "wechat" && "bg-sidebar-accent"
+                  )}
+                >
+                  <BookOpen className="w-4 h-4 shrink-0" />
+                  {!collapsed && <span>公众号</span>}
+                </Button>
+              </TooltipTrigger>
+              {collapsed && <TooltipContent side="right">公众号模式</TooltipContent>}
+            </Tooltip>
           </div>
         </div>
 
@@ -204,29 +224,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                   </Select>
                 </div>
 
-                {/* Image Provider */}
-                <div className="space-y-2">
-                  <label className="flex items-center gap-2 text-xs font-medium text-sidebar-foreground/70">
-                    <Palette className="w-3.5 h-3.5" />
-                    生图服务
-                  </label>
-                  <Select
-                    value={imageProvider}
-                    onValueChange={(v) => setImageProvider(v as "replicate" | "volcengine")}
-                  >
-                    <SelectTrigger className="h-8 text-xs bg-sidebar-accent border-0">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="replicate" className="text-xs">
-                        Replicate (二次元)
-                      </SelectItem>
-                      <SelectItem value="volcengine" className="text-xs">
-                        火山引擎 (Seedream)
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                {/* 生图功能已隐藏，只保留 Prompt 显示 */}
 
                 {/* TTS Provider - Only in video mode */}
                 {mode === "video" && (

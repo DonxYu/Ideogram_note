@@ -23,6 +23,8 @@ export interface ImageDesign {
   index: number;
   description: string;
   prompt: string;
+  sentiment?: string;
+  cover_text?: string;
 }
 
 export interface VisualScene {
@@ -33,11 +35,20 @@ export interface VisualScene {
   prompt: string;
 }
 
+export interface Diagram {
+  index: number;
+  title: string;
+  description: string;
+  diagram_type: "architecture" | "flow" | "comparison";
+  prompt: string;
+}
+
 export interface GenerateResponse {
   titles: string[];
   content: string;
   image_designs?: ImageDesign[];
   visual_scenes?: VisualScene[];
+  diagrams?: Diagram[];
 }
 
 export interface MediaResult {
@@ -106,10 +117,10 @@ export async function checkHealth(): Promise<HealthResponse> {
 }
 
 // Topics
-export async function analyzeTopics(keyword: string): Promise<AnalyzeResponse> {
+export async function analyzeTopics(keyword: string, mode: "websearch" | "llm" = "websearch"): Promise<AnalyzeResponse> {
   return fetchAPI<AnalyzeResponse>("/api/topics/analyze", {
     method: "POST",
-    body: JSON.stringify({ keyword }),
+    body: JSON.stringify({ keyword, mode }),
   });
 }
 
@@ -118,9 +129,10 @@ export async function generateContent(params: {
   topic: string;
   persona?: string;
   reference_url?: string;
-  mode: "image" | "video";
+  mode: "image" | "video" | "wechat";
   model_name?: string;
   outline?: string[];
+  temperature?: number;
 }): Promise<GenerateResponse> {
   // Rename model_name to llm_model for API compatibility
   const { model_name, ...rest } = params;

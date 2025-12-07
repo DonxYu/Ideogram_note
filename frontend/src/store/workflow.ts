@@ -14,7 +14,7 @@ import type {
 
 // ========== Types ==========
 
-export type WorkflowMode = "image" | "video";
+export type WorkflowMode = "image" | "video" | "wechat";
 export type WorkflowStep = "topic" | "persona" | "preview" | "studio";
 
 export interface WorkflowState {
@@ -24,7 +24,7 @@ export interface WorkflowState {
 
   // Config
   selectedModel: string;
-  imageProvider: "replicate" | "volcengine";
+  imageProvider: "replicate" | "volcengine" | "gemini";
   animeModel: "anything-v4" | "flux-anime";
   ttsProvider: "edge" | "volcengine";
   selectedVoice: string;
@@ -44,6 +44,18 @@ export interface WorkflowState {
   // Step 3: Content Preview
   generatedContent: GenerateResponse | null;
   selectedTitleIndex: number;
+  
+  // Dual Model Mode
+  dualModelMode: boolean;
+  secondModel: string;
+  dualResults: {
+    model1: GenerateResponse;
+    model2: GenerateResponse;
+  } | null;
+  selectedVersion: 'model1' | 'model2';
+  
+  // Advanced Settings
+  temperature: number;
 
   // Step 4: Media Studio
   imageResults: MediaResult[];
@@ -75,7 +87,7 @@ export interface WorkflowActions {
 
   // Config
   setSelectedModel: (model: string) => void;
-  setImageProvider: (provider: "replicate" | "volcengine") => void;
+  setImageProvider: (provider: "replicate" | "volcengine" | "gemini") => void;
   setAnimeModel: (model: "anything-v4" | "flux-anime") => void;
   setTtsProvider: (provider: "edge" | "volcengine") => void;
   setSelectedVoice: (voice: string) => void;
@@ -94,6 +106,15 @@ export interface WorkflowActions {
   // Step 3
   setGeneratedContent: (content: GenerateResponse | null) => void;
   setSelectedTitleIndex: (index: number) => void;
+  
+  // Dual Model Mode
+  setDualModelMode: (enabled: boolean) => void;
+  setSecondModel: (model: string) => void;
+  setDualResults: (results: { model1: GenerateResponse; model2: GenerateResponse } | null) => void;
+  setSelectedVersion: (version: 'model1' | 'model2') => void;
+  
+  // Advanced Settings
+  setTemperature: (temp: number) => void;
 
   // Step 4
   setImageResults: (results: MediaResult[]) => void;
@@ -139,13 +160,20 @@ const initialState: WorkflowState = {
   topicsSource: "",
   selectedTopic: null,
 
-  selectedCategory: "",
-  selectedPersona: "",
+  selectedCategory: "硬核技术/AI",
+  selectedPersona: "全栈AI架构师",
   customPersona: "",
   referenceUrl: "",
 
   generatedContent: null,
   selectedTitleIndex: 0,
+  
+  dualModelMode: true,
+  secondModel: "anthropic/claude-3.5-sonnet",
+  dualResults: null,
+  selectedVersion: 'model1',
+  
+  temperature: 0.4,
 
   imageResults: [],
   audioResults: [],
@@ -177,6 +205,22 @@ export const useWorkflowStore = create<WorkflowState & WorkflowActions>()(
       // Mode & Navigation
       setMode: (mode) => {
         set({ mode });
+        
+        // 切换模式时自动调整默认人设
+        if (mode === "wechat") {
+          // 公众号模式：技术分类
+          set({
+            selectedCategory: "硬核技术/AI",
+            selectedPersona: "全栈AI架构师",
+          });
+        } else {
+          // 小红书模式：职场分类
+          set({
+            selectedCategory: "职场",
+            selectedPersona: "职场清醒女王",
+          });
+        }
+        
         get().resetDownstream("topic");
       },
       setStep: (step) => set({ currentStep: step }),
@@ -217,6 +261,35 @@ export const useWorkflowStore = create<WorkflowState & WorkflowActions>()(
         }
       },
       setSelectedTitleIndex: (index) => set({ selectedTitleIndex: index }),
+      
+      // Dual Model Mode
+      setDualModelMode: (enabled) => {
+        set({ dualModelMode: enabled });
+        if (!enabled) {
+          set({ dualResults: null });
+        }
+      },
+      setSecondModel: (model) => set({ secondModel: model }),
+      setDualResults: (results) => {
+        set({ dualResults: results });
+        // Auto-select first version when results arrive
+        if (results) {
+          set({ selectedVersion: 'model1' });
+          // Set the selected version as the main generatedContent
+          set({ generatedContent: results.model1 });
+        }
+      },
+      setSelectedVersion: (version) => {
+        set({ selectedVersion: version });
+        const { dualResults } = get();
+        if (dualResults) {
+          // Update main content to selected version
+          set({ generatedContent: dualResults[version] });
+        }
+      },
+      
+      // Advanced Settings
+      setTemperature: (temp) => set({ temperature: temp }),
 
       // Step 4
       setImageResults: (results) => set({ imageResults: results }),
@@ -299,8 +372,9 @@ export const useWorkflowStore = create<WorkflowState & WorkflowActions>()(
         keyword: state.keyword,
         topics: state.topics,
         selectedTopic: state.selectedTopic,
-        selectedCategory: state.selectedCategory,
-        selectedPersona: state.selectedPersona,
+        // 不持久化人设，让其根据 mode 使用默认值
+        // selectedCategory: state.selectedCategory,
+        // selectedPersona: state.selectedPersona,
         generatedContent: state.generatedContent,
         bgmVolume: state.bgmVolume,
       }),

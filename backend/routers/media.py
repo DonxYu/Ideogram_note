@@ -103,7 +103,7 @@ async def generate_images_batch(req: ImageRequest):
     批量生成图片
     
     - 视频模式：使用指定 provider 统一生成
-    - 图文模式：主图用 Gemini Imagen 3，配图用豆包
+    - 图文模式：主图用 Nano Banana Pro，配图用豆包
     """
     if not req.scenes:
         raise HTTPException(status_code=400, detail="分镜列表不能为空")
@@ -117,11 +117,20 @@ async def generate_images_batch(req: ImageRequest):
         
         # 根据模式选择生图方式
         if req.mode == "image":
-            # 图文模式：主图 Gemini + 配图豆包
-            paths = generate_images_mixed(
-                scenes=scenes,
-                topic=req.topic,
-            )
+            # 图文模式：根据 provider 决定策略
+            if req.provider == "gemini":
+                # 全部用 Nano Banana Pro
+                paths = generate_images(
+                    scenes=scenes,
+                    provider="gemini",
+                    topic=req.topic,
+                )
+            else:
+                # 主图 Nano Banana Pro + 配图指定 provider（默认豆包）
+                paths = generate_images_mixed(
+                    scenes=scenes,
+                    topic=req.topic,
+                )
         else:
             # 视频模式：统一 provider
             paths = generate_images(

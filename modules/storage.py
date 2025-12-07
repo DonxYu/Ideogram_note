@@ -7,7 +7,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 import oss2
 
-load_dotenv()
+# 加载项目根目录的 .env 文件
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 OSS_ACCESS_KEY_ID = os.getenv("OSS_ACCESS_KEY_ID")
 OSS_ACCESS_KEY_SECRET = os.getenv("OSS_ACCESS_KEY_SECRET")

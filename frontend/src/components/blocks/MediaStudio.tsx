@@ -16,6 +16,8 @@ import {
   Clock,
   Play,
   Music,
+  FileText,
+  Copy,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -30,6 +32,11 @@ import {
 } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { useWorkflowStore } from "@/store/workflow";
 import {
   generateImages,
@@ -112,6 +119,8 @@ export function MediaStudio() {
 
   const scenes = mode === "video"
     ? generatedContent?.visual_scenes || []
+    : mode === "wechat"
+    ? generatedContent?.diagrams || []
     : generatedContent?.image_designs || [];
 
   const getSceneStatus = (result: { path: string | null; error: string | null } | null, isGenerating: boolean) => {
@@ -252,14 +261,14 @@ export function MediaStudio() {
       <section className="space-y-6 opacity-50">
         <div className="flex items-center gap-3">
           <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-muted text-muted-foreground">
-            <Clapperboard className="w-4 h-4" />
+            <FileText className="w-4 h-4" />
           </div>
           <div>
             <h2 className="text-lg font-semibold">
-              {mode === "video" ? "视频工作室" : "配图生成"}
+              生图提示词预览
             </h2>
             <p className="text-sm text-muted-foreground">
-              生成素材并合成最终内容
+              查看和复制各场景的中英文生图提示词
             </p>
           </div>
         </div>
@@ -276,281 +285,114 @@ export function MediaStudio() {
       {/* Section Header */}
       <div className="flex items-center gap-3">
         <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10 text-primary">
-          <Clapperboard className="w-4 h-4" />
+          <FileText className="w-4 h-4" />
         </div>
         <div>
           <h2 className="text-lg font-semibold">
-            {mode === "video" ? "视频工作室" : "配图生成 & 导出"}
+            生图提示词预览
           </h2>
           <p className="text-sm text-muted-foreground">
-            {mode === "video"
-              ? "生成配图和音频，自动合成视频"
-              : "生成配图，导出完整内容"}
+            查看和复制各场景的中英文生图提示词
           </p>
         </div>
       </div>
 
-      {/* Progress Overview */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className="p-4 rounded-lg bg-card border border-border">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
-            <ImageIcon className="w-4 h-4" />
-            图片进度
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-2xl font-semibold">
-              {imageSuccessCount}/{scenes.length}
-            </span>
-            {allImagesReady ? (
-              <Badge className="status-success">完成</Badge>
-            ) : isGeneratingImages ? (
-              <Badge className="status-generating gap-1">
-                <Loader2 className="w-3 h-3 animate-spin" />
-                生成中
-              </Badge>
-            ) : (
-              <Badge className="status-pending">待生成</Badge>
-            )}
-          </div>
-        </div>
-
-        {mode === "video" && (
-          <div className="p-4 rounded-lg bg-card border border-border">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
-              <Mic className="w-4 h-4" />
-              音频进度
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-2xl font-semibold">
-                {audioSuccessCount}/{scenes.length}
-              </span>
-              {allAudioReady ? (
-                <Badge className="status-success">完成</Badge>
-              ) : isGeneratingAudio ? (
-                <Badge className="status-generating gap-1">
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  生成中
-                </Badge>
-              ) : (
-                <Badge className="status-pending">待生成</Badge>
-              )}
-            </div>
-          </div>
-        )}
-
-        {mode === "video" && (
-          <div className="p-4 rounded-lg bg-card border border-border">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
-              <Video className="w-4 h-4" />
-              视频状态
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium">
-                {videoPath ? "已生成" : "待合成"}
-              </span>
-              {videoPath ? (
-                <Badge className="status-success">完成</Badge>
-              ) : isCreatingVideo ? (
-                <Badge className="status-generating gap-1">
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  合成中
-                </Badge>
-              ) : (
-                <Badge className="status-pending">待合成</Badge>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Action Buttons */}
-      <div className="flex flex-wrap gap-3">
-        <Button
-          onClick={handleGenerateImages}
-          disabled={isGeneratingImages || allImagesReady}
-          className="gap-2"
-        >
-          {isGeneratingImages ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <ImageIcon className="w-4 h-4" />
-          )}
-          {allImagesReady ? "图片已完成" : "生成所有图片"}
-        </Button>
-
-        {mode === "video" && (
-          <>
-            <Button
-              onClick={handleGenerateAudio}
-              disabled={isGeneratingAudio || allAudioReady}
-              variant="secondary"
-              className="gap-2"
-            >
-              {isGeneratingAudio ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Mic className="w-4 h-4" />
-              )}
-              {allAudioReady ? "音频已完成" : "生成所有音频"}
-            </Button>
-
-            <Button
-              onClick={handleCreateVideo}
-              disabled={!allImagesReady || !allAudioReady || isCreatingVideo}
-              variant={videoPath ? "secondary" : "default"}
-              className="gap-2"
-            >
-              {isCreatingVideo ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Video className="w-4 h-4" />
-              )}
-              {videoPath ? "重新合成" : "合成视频"}
-            </Button>
-          </>
-        )}
-      </div>
-
-      {/* BGM Selection (Video Mode) */}
-      {mode === "video" && (
-        <div className="p-4 rounded-lg bg-secondary/30 space-y-4">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <Music className="w-4 h-4" />
-            背景音乐
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Select value={selectedBgm || ""} onValueChange={(v) => setSelectedBgm(v || null)}>
-              <SelectTrigger className="h-10 bg-background">
-                <SelectValue placeholder="选择 BGM（可选）" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">无 BGM</SelectItem>
-                {availableBgm.map((bgm) => (
-                  <SelectItem key={bgm.path} value={bgm.path}>
-                    {bgm.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <div className="flex items-center gap-4">
-              <span className="text-sm text-muted-foreground shrink-0">音量</span>
-              <Slider
-                value={[bgmVolume]}
-                onValueChange={([v]) => setBgmVolume(v)}
-                min={0.05}
-                max={0.3}
-                step={0.01}
-                className="flex-1"
-              />
-              <span className="text-sm text-muted-foreground w-12">
-                {Math.round(bgmVolume * 100)}%
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Media Preview Grid */}
+      {/* Prompt Preview Grid - 生图功能已隐藏 */}
       <div className="space-y-4">
-        <h3 className="text-sm font-medium text-foreground">素材预览</h3>
-        <ScrollArea className="h-[400px]">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 pr-4">
-            {scenes.map((scene, i) => {
-              const imageResult = imageResults[i];
-              const audioResult = audioResults[i];
-              const imageStatus = getSceneStatus(imageResult, isGeneratingImages);
-              const audioStatus = mode === "video" ? getSceneStatus(audioResult, isGeneratingAudio) : null;
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-medium text-foreground">生图提示词列表</h3>
+          <Badge variant="secondary" className="text-xs">
+            {scenes.length} 个场景
+          </Badge>
+        </div>
+        <ScrollArea className="h-[600px]">
+          <div className="space-y-3 pr-4">
+            {scenes.map((scene, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.03 }}
+                className="rounded-lg border border-border bg-card p-4 space-y-3"
+              >
+                {/* Scene Header */}
+                <div className="flex items-center justify-between">
+                  <Badge variant="outline">场景 {i + 1}</Badge>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1 text-xs"
+                    onClick={() => {
+                      const fullText = `场景${i+1}\n\n【画面描述】\n${
+                        mode === "video"
+                          ? (scene as { description: string }).description
+                          : mode === "wechat"
+                          ? (scene as any).title || (scene as { description: string }).description
+                          : (scene as { description: string }).description
+                      }\n\n【生图提示词】\n${(scene as { prompt: string }).prompt}`;
+                      navigator.clipboard.writeText(fullText);
+                      toast.success("场景完整信息已复制");
+                    }}
+                  >
+                    <Copy className="w-3 h-3" />
+                    复制全部
+                  </Button>
+                </div>
 
-              return (
-                <motion.div
-                  key={i}
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: i * 0.03 }}
-                  className="rounded-lg border border-border overflow-hidden bg-card"
-                >
-                  {/* Image Preview */}
-                  <div className="aspect-[3/4] bg-secondary/30 relative">
-                    {imageResult?.url ? (
-                      <img
-                        src={resolveMediaUrl(imageResult.url)}
-                        alt={`Scene ${i + 1}`}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <StatusBadge status={imageStatus} />
-                      </div>
-                    )}
-                    
-                    {/* Retry Button */}
-                    {imageStatus === "error" && (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="absolute bottom-2 right-2 gap-1"
-                        onClick={() => handleRetryImage(i)}
-                      >
-                        <RefreshCw className="w-3 h-3" />
-                        重试
-                      </Button>
-                    )}
-                  </div>
-
-                  {/* Info */}
-                  <div className="p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Badge variant="outline">场景 {i + 1}</Badge>
-                      <div className="flex gap-1">
-                        <StatusBadge status={imageStatus} />
-                        {audioStatus && <StatusBadge status={audioStatus} />}
-                      </div>
-                    </div>
-
-                    {/* Audio Player (Video Mode) */}
-                    {mode === "video" && audioResult?.url && (
-                      <audio
-                        src={resolveMediaUrl(audioResult.url)}
-                        controls
-                        className="w-full h-8"
-                      />
-                    )}
-
-                    {/* Scene Info */}
-                    <p className="text-xs text-muted-foreground line-clamp-2">
-                      {mode === "video"
-                        ? (scene as { narration: string }).narration
-                        : (scene as { description: string }).description}
+                {/* 视频模式：口播词 */}
+                {mode === "video" && (
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      口播词
+                    </label>
+                    <p className="text-sm text-foreground leading-relaxed">
+                      {(scene as { narration: string }).narration}
                     </p>
                   </div>
-                </motion.div>
-              );
-            })}
+                )}
+
+                {/* 中文描述 */}
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    {mode === "wechat" ? "技术描述" : "画面描述"}
+                  </label>
+                  <p className="text-sm text-foreground leading-relaxed">
+                    {mode === "video"
+                      ? (scene as { description: string }).description
+                      : mode === "wechat"
+                      ? (scene as any).title || (scene as { description: string }).description
+                      : (scene as { description: string }).description}
+                  </p>
+                </div>
+
+                {/* 英文 Prompt */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      生图提示词（英文）
+                    </label>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 gap-1 text-xs"
+                      onClick={() => {
+                        navigator.clipboard.writeText((scene as { prompt: string }).prompt);
+                        toast.success("Prompt 已复制");
+                      }}
+                    >
+                      <Copy className="w-3 h-3" />
+                      复制
+                    </Button>
+                  </div>
+                  <pre className="text-xs bg-secondary/50 p-3 rounded whitespace-pre-wrap font-mono leading-relaxed">
+{(scene as { prompt: string }).prompt}
+                  </pre>
+                </div>
+              </motion.div>
+            ))}
           </div>
         </ScrollArea>
       </div>
-
-      {/* Video Preview (Video Mode) */}
-      {mode === "video" && videoUrl && (
-        <div className="space-y-4">
-          <h3 className="text-sm font-medium text-foreground">视频预览</h3>
-          <div className="rounded-lg overflow-hidden border border-border">
-            <video
-              src={resolveMediaUrl(videoUrl)}
-              controls
-              className="w-full max-h-[400px]"
-            />
-          </div>
-          <div className="flex gap-3">
-            <Button asChild className="gap-2">
-              <a href={resolveMediaUrl(videoUrl)} download>
-                <Download className="w-4 h-4" />
-                下载视频
-              </a>
-            </Button>
-          </div>
-        </div>
-      )}
     </section>
   );
 }
