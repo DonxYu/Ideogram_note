@@ -71,6 +71,9 @@ export function TopicRadar() {
       return;
     }
 
+    // 记录当前搜索模式
+    setSearchMode(actualMode);
+
     // 根据模式调整进度步骤
     const steps = actualMode === "llm"
       ? createDefaultSteps([
@@ -161,12 +164,12 @@ export function TopicRadar() {
           variant={searchMode === "llm" ? "default" : "secondary"}
           className="h-11 px-6 gap-2"
         >
-          {isAnalyzing ? (
+          {isAnalyzing && searchMode === "llm" ? (
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
             <Brain className="w-4 h-4" />
           )}
-          {isAnalyzing ? "推荐中..." : "AI推荐"}
+          {isAnalyzing && searchMode === "llm" ? "推荐中..." : "AI推荐"}
         </Button>
         <Button
           onClick={() => handleAnalyze("websearch")}
@@ -174,12 +177,12 @@ export function TopicRadar() {
           variant={searchMode === "websearch" ? "default" : "secondary"}
           className="h-11 px-6 gap-2"
         >
-          {isAnalyzing ? (
+          {isAnalyzing && searchMode === "websearch" ? (
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
             <Globe className="w-4 h-4" />
           )}
-          {isAnalyzing ? "搜索中..." : "实时搜索"}
+          {isAnalyzing && searchMode === "websearch" ? "搜索中..." : "实时搜索"}
         </Button>
         <Button
           variant="outline"
