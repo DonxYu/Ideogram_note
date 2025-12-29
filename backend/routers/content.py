@@ -5,7 +5,12 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 
-from modules.writer import generate_note_package_with_retry
+from modules.writer import (
+    generate_note_package_with_retry,
+    generate_outline_step,
+    generate_content_step,
+    generate_visuals_step
+)
 from modules.crawler import fetch_note_content
 from modules.md_exporter import export_note
 
@@ -54,6 +59,130 @@ class GenerateResponse(BaseModel):
     image_designs: Optional[List[ImageDesign]] = None
     visual_scenes: Optional[List[VisualScene]] = None
     diagrams: Optional[List[Diagram]] = None
+
+
+# ============================================================================
+# 分步生成 API Request/Response Models
+# ============================================================================
+
+class OutlineRequest(BaseModel):
+    topic: str
+    persona: Optional[str] = None
+    search_data: Optional[Dict[str, Any]] = None
+    model_name: str = "deepseek/deepseek-chat"
+    temperature: float = 0.7
+
+class OutlineResponse(BaseModel):
+    titles: List[str]
+    outline: List[str]
+
+class ContentRequest(BaseModel):
+    topic: str
+    outline: List[str]
+    titles: List[str]
+    persona: Optional[str] = None
+    search_data: Optional[Dict[str, Any]] = None
+    reference_url: Optional[str] = None
+    model_name: str = "deepseek/deepseek-chat"
+    temperature: float = 0.8
+
+class ContentResponse(BaseModel):
+    content: str
+
+class VisualsRequest(BaseModel):
+    topic: str
+    content: str
+    model_name: str = "deepseek/deepseek-chat"
+    temperature: float = 0.7
+    global_style: Optional[str] = None
+
+class VisualsResponse(BaseModel):
+    image_designs: List[ImageDesign]
+    global_style: Optional[str] = None
+
+
+# ============================================================================
+# Endpoints
+# ============================================================================
+
+@router.post("/step/outline", response_model=OutlineResponse)
+async def create_outline(req: OutlineRequest):
+    """【Step 1】生成大纲和标题"""
+    if not req.topic:
+        raise HTTPException(status_code=400, detail="选题不能为空")
+    
+    try:
+        result = generate_outline_step(
+            topic=req.topic,
+            search_data=req.search_data,
+            persona=req.persona,
+            model_name=req.model_name,
+            temperature=req.temperature
+        )
+        return OutlineResponse(
+            titles=result.get("titles", []),
+            outline=result.get("outline", [])
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"大纲生成失败: {str(e)}")
+
+
+@router.post("/step/content", response_model=ContentResponse)
+async def create_content_step(req: ContentRequest):
+    """【Step 2】生成正文"""
+    try:
+        # 抓取参考内容
+        reference_text = None
+        if req.reference_url:
+            ref_data = fetch_note_content(req.reference_url)
+            if ref_data:
+                reference_text = f"标题：{ref_data.get('title', '')}\n\n{ref_data.get('content', '')}"
+
+        result = generate_content_step(
+            topic=req.topic,
+            outline=req.outline,
+            titles=req.titles,
+            persona=req.persona,
+            search_data=req.search_data,
+            reference_text=reference_text,
+            model_name=req.model_name,
+            temperature=req.temperature
+        )
+        return ContentResponse(content=result.get("content", ""))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"正文生成失败: {str(e)}")
+
+
+@router.post("/step/visuals", response_model=VisualsResponse)
+async def create_visuals(req: VisualsRequest):
+    """【Step 3】生成配图设计"""
+    try:
+        result = generate_visuals_step(
+            topic=req.topic,
+            content=req.content,
+            model_name=req.model_name,
+            temperature=req.temperature,
+            global_style=req.global_style
+        )
+        
+        designs = result.get("image_designs", [])
+        image_designs = [
+            ImageDesign(
+                index=d.get("index", i + 1),
+                description=d.get("description", ""),
+                prompt=d.get("prompt", ""),
+                sentiment=d.get("sentiment", ""),
+                cover_text=d.get("cover_text"),
+            )
+            for i, d in enumerate(designs)
+        ]
+        
+        return VisualsResponse(
+            image_designs=image_designs,
+            global_style=result.get("global_style")
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"配图设计失败: {str(e)}")
 
 
 @router.post("/generate", response_model=GenerateResponse)
@@ -182,4 +311,3 @@ async def export_note_to_obsidian(req: ExportRequest):
             
     except Exception as e:
         return ExportResponse(success=False, error=str(e))
-

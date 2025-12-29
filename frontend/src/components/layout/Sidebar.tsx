@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronLeft,
@@ -9,16 +9,18 @@ import {
   FileText,
   Video,
   Settings,
-  Palette,
-  Mic2,
   Brain,
   Moon,
   Sun,
   BookOpen,
+  User,
+  Thermometer,
+  Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { Slider } from "@/components/ui/slider";
 import {
   Select,
   SelectContent,
@@ -33,35 +35,53 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useWorkflowStore } from "@/store/workflow";
+import { getPersonas } from "@/lib/api";
 
 interface SidebarProps {
   collapsed: boolean;
   onToggle: () => void;
+  onOpenHotSearch?: () => void;
 }
 
-export function Sidebar({ collapsed, onToggle }: SidebarProps) {
+export function Sidebar({ collapsed, onToggle, onOpenHotSearch }: SidebarProps) {
   const [isDark, setIsDark] = useState(false);
   const {
     mode,
     setMode,
     selectedModel,
     setSelectedModel,
-    imageProvider,
-    setImageProvider,
-    ttsProvider,
-    setTtsProvider,
-    selectedVoice,
-    setSelectedVoice,
+    selectedCategory,
+    setSelectedCategory,
+    selectedPersona,
+    setSelectedPersona,
+    temperature,
+    setTemperature,
     availableModels,
-    availableVoices,
+    availablePersonas,
+    setAvailablePersonas,
   } = useWorkflowStore();
+
+  // Fetch personas on mount
+  useEffect(() => {
+    if (availablePersonas.length === 0) {
+      getPersonas()
+        .then((data) => setAvailablePersonas(data.categories))
+        .catch(() => {});
+    }
+  }, [availablePersonas.length, setAvailablePersonas]);
 
   const toggleTheme = () => {
     setIsDark(!isDark);
     document.documentElement.classList.toggle("dark");
   };
 
-  const currentVoices = ttsProvider === "edge" ? availableVoices.edge : availableVoices.volcengine;
+  // 根据 mode 过滤人设分类
+  const categories = mode === "wechat"
+    ? availablePersonas.filter((c) => c.category === "硬核技术/AI").map((c) => c.category)
+    : availablePersonas.map((c) => c.category);
+  
+  const currentPersonas =
+    availablePersonas.find((c) => c.category === selectedCategory)?.personas || [];
 
   return (
     <TooltipProvider delayDuration={0}>
@@ -224,75 +244,113 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                   </Select>
                 </div>
 
-                {/* 生图功能已隐藏，只保留 Prompt 显示 */}
+                <Separator className="bg-sidebar-border" />
 
-                {/* TTS Provider - Only in video mode */}
-                {mode === "video" && (
-                  <>
-                    <div className="space-y-2">
-                      <label className="flex items-center gap-2 text-xs font-medium text-sidebar-foreground/70">
-                        <Mic2 className="w-3.5 h-3.5" />
-                        TTS 服务
-                      </label>
-                      <Select
-                        value={ttsProvider}
-                        onValueChange={(v) => setTtsProvider(v as "edge" | "volcengine")}
-                      >
-                        <SelectTrigger className="h-8 text-xs bg-sidebar-accent border-0">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="edge" className="text-xs">
-                            Edge TTS (免费)
-                          </SelectItem>
-                          <SelectItem value="volcengine" className="text-xs">
-                            火山引擎 TTS
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
+                {/* Persona Selection */}
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2 text-xs font-medium text-sidebar-foreground/70">
+                    <User className="w-3.5 h-3.5" />
+                    写作人设
+                  </label>
+                  
+                  {/* Category */}
+                  <Select
+                    value={selectedCategory}
+                    onValueChange={(v) => {
+                      setSelectedCategory(v);
+                    }}
+                  >
+                    <SelectTrigger className="h-8 text-xs bg-sidebar-accent border-0">
+                      <SelectValue placeholder="选择赛道" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {categories.map((cat) => (
+                        <SelectItem key={cat} value={cat} className="text-xs">
+                          {cat}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
 
-                    {/* Voice Selection */}
-                    <div className="space-y-2">
-                      <label className="flex items-center gap-2 text-xs font-medium text-sidebar-foreground/70">
-                        语音角色
-                      </label>
-                      <Select value={selectedVoice} onValueChange={setSelectedVoice}>
-                        <SelectTrigger className="h-8 text-xs bg-sidebar-accent border-0">
-                          <SelectValue placeholder="选择语音" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {currentVoices.length > 0 ? (
-                            currentVoices.map((v) => (
-                              <SelectItem key={v.value} value={v.value} className="text-xs">
-                                {v.label}
-                              </SelectItem>
-                            ))
-                          ) : (
-                            <>
-                              <SelectItem value="zh-CN-XiaoxiaoNeural" className="text-xs">
-                                小晓 (女)
-                              </SelectItem>
-                              <SelectItem value="zh-CN-YunyangNeural" className="text-xs">
-                                云扬 (男)
-                              </SelectItem>
-                            </>
-                          )}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </>
-                )}
+                  {/* Persona */}
+                  <Select value={selectedPersona} onValueChange={setSelectedPersona}>
+                    <SelectTrigger className="h-8 text-xs bg-sidebar-accent border-0">
+                      <SelectValue placeholder="选择人设" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {currentPersonas.map((p) => (
+                        <SelectItem key={p.name} value={p.name} className="text-xs">
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <Separator className="bg-sidebar-border" />
+
+                {/* Temperature Slider */}
+                <div className="space-y-3">
+                  <label className="flex items-center gap-2 text-xs font-medium text-sidebar-foreground/70">
+                    <Thermometer className="w-3.5 h-3.5" />
+                    创意度
+                    <span className="ml-auto font-mono">{temperature.toFixed(2)}</span>
+                  </label>
+                  <Slider
+                    value={[temperature]}
+                    onValueChange={(v) => setTemperature(v[0])}
+                    min={0.3}
+                    max={1.0}
+                    step={0.05}
+                    className="w-full"
+                  />
+                  <div className="flex justify-between text-[10px] text-sidebar-foreground/50">
+                    <span>稳定</span>
+                    <span>创意</span>
+                  </div>
+                </div>
+
+                <Separator className="bg-sidebar-border" />
+
+                {/* Hot Search Button */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onOpenHotSearch}
+                  className="w-full gap-2 text-xs"
+                >
+                  <Search className="w-3.5 h-3.5" />
+                  热点搜索
+                </Button>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
 
+        {/* Collapsed Icons */}
+        {collapsed && (
+          <div className="flex flex-col items-center gap-2 p-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={onOpenHotSearch}
+                  className="h-10 w-10 text-sidebar-foreground hover:bg-sidebar-accent"
+                >
+                  <Search className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">热点搜索</TooltipContent>
+            </Tooltip>
+          </div>
+        )}
+
         {/* Footer */}
         <div className="mt-auto p-3 border-t border-sidebar-border">
           <div className={cn("flex items-center", collapsed ? "justify-center" : "justify-between")}>
             {!collapsed && (
-              <span className="text-xs text-sidebar-foreground/50">v2.0</span>
+              <span className="text-xs text-sidebar-foreground/50">v2.1</span>
             )}
             <Tooltip>
               <TooltipTrigger asChild>
@@ -315,4 +373,3 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     </TooltipProvider>
   );
 }
-

@@ -44,7 +44,11 @@ const itemVariants = {
   visible: { opacity: 1, y: 0 },
 };
 
-export function TopicRadar() {
+interface TopicRadarProps {
+  onTopicSelect?: () => void;
+}
+
+export function TopicRadar({ onTopicSelect }: TopicRadarProps = {}) {
   const {
     keyword,
     setKeyword,
@@ -55,7 +59,6 @@ export function TopicRadar() {
     selectTopic,
     isAnalyzing,
     setIsAnalyzing,
-    setStep,
     resetAll,
   } = useWorkflowStore();
 
@@ -122,8 +125,8 @@ export function TopicRadar() {
 
   const handleSelectTopic = (topic: typeof topics[0]) => {
     selectTopic(topic);
-    setStep("persona");
     toast.success(`已选择: ${topic.title.slice(0, 20)}...`);
+    onTopicSelect?.();
   };
 
   const handleReset = () => {

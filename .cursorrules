@@ -1,0 +1,155 @@
+# Ideogram Note - Cursor Rules
+
+## 项目概述
+这是一个 AI 驱动的小红书内容创作平台，基于 Next.js + FastAPI 架构。
+支持图文、视频、公众号三种模式，从选题到成品一站式完成。
+
+## 技术栈
+- **前端**: Next.js 16 (App Router), TypeScript, Tailwind CSS, Zustand, shadcn/ui
+- **后端**: FastAPI, Python 3.10+
+- **AI 服务**: OpenRouter (LLM), 火山引擎 (搜索/TTS), Replicate (生图)
+
+## 代码风格
+
+### Python (后端)
+- 使用 Python 3.10+ 语法
+- 遵循 PEP 8 规范
+- 函数必须有 docstring，说明 Args 和 Returns
+- 使用 Pydantic 进行数据验证
+- 异步函数使用 `async def`
+- 错误处理使用 `HTTPException`
+
+### TypeScript (前端)
+- 使用函数式组件 + Hooks
+- 类型定义放在 `@/lib/api.ts` 或组件文件顶部
+- 使用 Zustand 进行状态管理，store 定义在 `@/store/workflow.ts`
+- UI 组件使用 shadcn/ui，位于 `@/components/ui/`
+- 业务组件位于 `@/components/blocks/`
+
+## 目录结构约定
+```
+modules/           # Python 核心业务逻辑
+  - writer.py      # LLM 文案生成（核心）
+  - trend.py       # 热点分析
+  - painter.py     # 生图 Prompt
+  - audio.py       # TTS 音频
+  - editor.py      # 视频合成
+  - quality_checker.py  # 质量检测
+
+backend/routers/   # FastAPI 路由
+  - topics.py      # 选题分析 API
+  - content.py     # 内容生成 API
+  - media.py       # 媒体生成 API
+  - video.py       # 视频合成 API
+  - config.py      # 配置 API
+
+frontend/src/
+  - components/blocks/  # 业务组件
+  - store/workflow.ts   # 全局状态
+  - lib/api.ts          # API 客户端
+```
+
+## 关键业务逻辑
+
+### 内容生成模式
+- `image` (图文模式): 返回 titles + content + image_designs
+- `video` (视频模式): 返回 titles + content + visual_scenes
+- `wechat` (公众号模式): 返回 titles + content + diagrams
+
+### 质量检测规则 (quality_checker.py)
+- AI 套话黑名单检测
+- 具体数字检测 (至少 2 处)
+- 个人经历检测 (至少 1 处)
+- 强情绪词检测 (至少 3 处)
+- 字数检测 (图文模式 800+ 字)
+
+## 注意事项
+
+### 禁止
+- 不要在 `modules/` 中引入 FastAPI 依赖
+- 不要硬编码 API Key，使用 `.env` 环境变量
+- 不要修改 `@/components/ui/` 下的 shadcn 组件
+
+### 推荐
+- 新增 API 端点时，在 `backend/routers/` 下创建或扩展
+- 新增前端组件时，业务组件放 `blocks/`，通用组件放 `ui/`
+- LLM Prompt 修改主要在 `modules/writer.py`
+- 人设配置在 `data/personas.json`
+
+## 常用命令
+```bash
+# 启动后端 (从项目根目录)
+python3 -m uvicorn backend.main:app --reload --port 8501
+
+# 启动前端
+cd frontend && npm run dev
+
+# 访问地址
+# 前端: http://localhost:3000
+# 后端: http://localhost:8501
+# API 文档: http://localhost:8501/docs
+```
+
+## 回复语言
+- 始终使用中文回复
+
+## 核心原则
+- **极简回复**：只给必要代码，不要冗长解释，没要求你总结的时候不要输出总结文档
+- **上下文优先**：使用 @ 引用的文件风格和模式
+- **增量修改**：只显示需要改动的部分，不要重复已有代码
+- **禁止臆测**：不确定时直接询问，不要假设需求
+
+## 代码生成规范
+1. 优先给代码块，最小化文字说明
+2. 保持现有代码风格（缩进、命名、注释密度）
+3. 使用项目已有依赖，不建议新增库（除非必要）
+4. 类型定义引用现有 types 文件
+5. 错误处理遵循项目现有模式
+
+## 响应格式要求
+✅ DO:
+- 直接给出可用代码
+- 用注释标注修改点
+- 关键决策简要说明（1-2句）
+- 多个方案时用序号列出核心差异
+
+❌ DO NOT:
+- 重新生成完整文件
+- 重复 import 语句
+- 过度注释（self-explanatory 代码不加注释）
+- 添加示例/测试代码（除非明确要求）
+- 解释基础概念（如 useState、async/await）
+
+## 特定场景处理
+
+### Bug 修复
+- 直接给修复代码
+- 用 `// FIX:` 注释说明原因
+
+### 新功能
+- 先确认：需要哪些文件？依赖现有哪些模块？
+- 分步骤给代码，避免一次性大量输出
+
+### 重构
+- 明确重构范围
+- 保持对外接口不变（除非被要求改）
+
+### 代码审查
+- 列出问题清单（性能/安全/可维护性）
+- 每个问题给出一行修复建议
+
+## 多技术栈识别
+根据文件扩展名和项目结构自动适配：
+- `.tsx/.jsx` → React 模式
+- `.vue` → Vue 模式  
+- `.go` → Go 模式
+- `.py` → Python 模式
+- `.rs` → Rust 模式
+- `package.json` → Node.js 生态
+- `requirements.txt` → Python 生态
+- `go.mod` → Go 生态
+
+## Token 优化策略
+- 我会用 @ 精确引用文件，不要假设上下文
+- 当我说"同上"/"类似"时，复用之前方案核心思路
+- 代码 > 解释：能用代码展示就不用文字描述

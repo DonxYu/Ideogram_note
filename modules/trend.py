@@ -12,11 +12,21 @@ from openai import OpenAI
 # 加载项目根目录的 .env 文件
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-# 火山引擎方舟客户端（支持联网搜索）
-ark_client = OpenAI(
-    base_url="https://ark.cn-beijing.volces.com/api/v3",
-    api_key=os.getenv("ARK_API_KEY"),
-)
+# 火山引擎方舟客户端（延迟初始化）
+_ark_client = None
+
+def get_ark_client():
+    """延迟初始化火山引擎客户端"""
+    global _ark_client
+    if _ark_client is None:
+        api_key = os.getenv("ARK_API_KEY")
+        if not api_key:
+            raise ValueError("ARK_API_KEY 环境变量未设置，请在 .env 文件中配置")
+        _ark_client = OpenAI(
+            base_url="https://ark.cn-beijing.volces.com/api/v3",
+            api_key=api_key,
+        )
+    return _ark_client
 
 
 def analyze_trends(niche: str, force_fallback: bool = False) -> tuple[list, str]:
@@ -68,7 +78,7 @@ def analyze_trends(niche: str, force_fallback: bool = False) -> tuple[list, str]
 ]"""
 
     try:
-        response = ark_client.responses.create(
+        response = get_ark_client().responses.create(
             model="doubao-seed-1-6-250615",
             input=[{"role": "user", "content": search_prompt}],
             tools=[{"type": "web_search"}],

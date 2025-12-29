@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from modules.painter import generate_images, generate_single_image, generate_images_mixed
+from modules.painter import generate_images, generate_single_image
 from modules.audio import generate_audio_for_scenes, generate_single_audio
 
 router = APIRouter()
@@ -30,9 +30,8 @@ class SceneInput(BaseModel):
 class ImageRequest(BaseModel):
     scenes: List[SceneInput]
     provider: str = "replicate"  # "replicate" | "volcengine"
-    anime_model: str = "anything-v4"  # "anything-v4" | "flux-anime"
     topic: Optional[str] = None
-    mode: str = "video"  # "image" | "video" - 图文模式主图用 Gemini
+    use_schnell: bool = False  # True: flux-schnell (快), False: flux-dev (高质量)
 
 
 class AudioRequest(BaseModel):
@@ -46,8 +45,8 @@ class SingleImageRequest(BaseModel):
     scene: SceneInput
     index: int
     provider: str = "replicate"
-    anime_model: str = "anything-v4"
     topic: Optional[str] = None
+    use_schnell: bool = False
 
 
 class SingleAudioRequest(BaseModel):
@@ -100,10 +99,7 @@ def _path_to_url(path: str, media_type: str) -> Optional[str]:
 @router.post("/images", response_model=BatchMediaResponse)
 async def generate_images_batch(req: ImageRequest):
     """
-    批量生成图片
-    
-    - 视频模式：使用指定 provider 统一生成
-    - 图文模式：主图用 Nano Banana Pro，配图用豆包
+    批量生成图片（使用 FLUX 模型）
     """
     if not req.scenes:
         raise HTTPException(status_code=400, detail="分镜列表不能为空")
@@ -115,30 +111,13 @@ async def generate_images_batch(req: ImageRequest):
             for s in req.scenes
         ]
         
-        # 根据模式选择生图方式
-        if req.mode == "image":
-            # 图文模式：根据 provider 决定策略
-            if req.provider == "gemini":
-                # 全部用 Nano Banana Pro
-                paths = generate_images(
-                    scenes=scenes,
-                    provider="gemini",
-                    topic=req.topic,
-                )
-            else:
-                # 主图 Nano Banana Pro + 配图指定 provider（默认豆包）
-                paths = generate_images_mixed(
-                    scenes=scenes,
-                    topic=req.topic,
-                )
-        else:
-            # 视频模式：统一 provider
-            paths = generate_images(
-                scenes=scenes,
-                provider=req.provider,
-                anime_model=req.anime_model,
-                topic=req.topic,
-            )
+        # 统一使用 FLUX 生图
+        paths = generate_images(
+            scenes=scenes,
+            provider=req.provider,
+            topic=req.topic,
+            use_schnell=req.use_schnell,
+        )
         
         # 构造结果
         results = []
@@ -174,8 +153,8 @@ async def generate_image_single(req: SingleImageRequest):
             scene=scene,
             index=req.index,
             provider=req.provider,
-            anime_model=req.anime_model,
             topic=req.topic,
+            use_schnell=req.use_schnell,
         )
         
         return MediaResult(
@@ -275,8 +254,8 @@ async def _generate_images_stream(req: ImageRequest):
                 scene=scene,
                 index=i,
                 provider=req.provider,
-                anime_model=req.anime_model,
                 topic=req.topic,
+                use_schnell=req.use_schnell,
             )
             
             result = {
@@ -311,4 +290,3 @@ async def generate_images_stream(req: ImageRequest):
             "Connection": "keep-alive",
         },
     )
-

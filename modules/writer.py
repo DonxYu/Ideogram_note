@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
+from typing import List, Dict, Any, Optional
 
 from modules.monitor import log_api_call, log_generation
 from modules.quality_checker import check_content_quality, format_quality_report
@@ -15,10 +16,21 @@ from modules.quality_checker import check_content_quality, format_quality_report
 _project_root = Path(__file__).parent.parent
 load_dotenv(_project_root / ".env")
 
-client = OpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=os.getenv("OPENROUTER_API_KEY"),
-)
+# OpenRouter 客户端（延迟初始化）
+_client = None
+
+def get_openrouter_client():
+    """延迟初始化 OpenRouter 客户端"""
+    global _client
+    if _client is None:
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY 环境变量未设置，请在 .env 文件中配置")
+        _client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=api_key,
+        )
+    return _client
 
 
 def _fix_json_newlines(text: str) -> str:
@@ -43,9 +55,9 @@ def _fix_json_newlines(text: str) -> str:
     return ''.join(result)
 
 
-def _call_llm_and_parse(system_prompt: str, user_content: str, topic: str, persona: str, model_name: str = "deepseek/deepseek-chat", temperature: float = 0.8) -> dict:
+def _call_llm_and_parse(system_prompt: str, user_content: str, topic: str, persona: str, model_name: str = "deepseek/deepseek-chat", temperature: float = 0.8, log_result: bool = True) -> dict:
     """内部函数：调用 LLM 并解析 JSON 响应"""
-    response = client.chat.completions.create(
+    response = get_openrouter_client().chat.completions.create(
         model=model_name,
         max_tokens=8192,
         temperature=temperature,
@@ -80,13 +92,14 @@ def _call_llm_and_parse(system_prompt: str, user_content: str, topic: str, perso
     
     try:
         result = json.loads(text)
-        # 记录生成历史
-        log_generation(
-            topic=topic,
-            persona=persona or "通用博主",
-            titles=result.get("titles", []),
-            content_preview=result.get("content", "")[:200]
-        )
+        # 记录生成历史（仅在最终结果时记录）
+        if log_result:
+            log_generation(
+                topic=topic,
+                persona=persona or "通用博主",
+                titles=result.get("titles", []),
+                content_preview=result.get("content", "")[:200]
+            )
         return result
     except json.JSONDecodeError as e:
         print(f"\n{'='*60}")
@@ -104,178 +117,369 @@ def _call_llm_and_parse(system_prompt: str, user_content: str, topic: str, perso
         raise ValueError(f"LLM 返回格式错误，请检查日志。预览: {text[:200]}")
 
 
-def generate_image_note(topic: str, persona: str = None, reference_text: str = None, model_name: str = "deepseek/deepseek-chat", search_data: dict = None, temperature: float = 0.8) -> dict:
-    """
-    【图文模式】生成小红书图文笔记（长文案 + 配图提示词）
-    
-    Args:
-        topic: 选题/主题
-        persona: 博主人设风格描述
-        reference_text: 参考内容（用于仿写）
-        model_name: OpenRouter 模型 ID
-        search_data: websearch 返回的完整热点数据，包含 title/source/summary/outline/why_hot
-    
-    Returns:
-        {
-            'titles': [...],           # 5个备选标题
-            'content': '...',          # 深度正文（800字以上）
-            'image_designs': [         # 配图设计（2-6张）
-                {
-                    'index': 1,
-                    'description': '中文画面描述',
-                    'prompt': '生图提示词'
-                },
-                ...
-            ]
-        }
-    """
-    reference_section = ""
-    if reference_text:
-        reference_section = f"""
-参考内容（请仿写其结构和风格）：
----
-{reference_text}
----
-"""
+def load_few_shot_examples() -> str:
+    """加载 Few-Shot 范文数据"""
+    try:
+        examples_path = _project_root / "data" / "examples" / "xiaohongshu_best_practices.json"
+        if examples_path.exists():
+            with open(examples_path, "r", encoding="utf-8") as f:
+                examples = json.load(f)
+                
+            example_text = "\n【🌟 优质爆款范文参考】\n请仔细阅读以下范文，学习其语气、排版、emoji使用和结构：\n\n"
+            for i, ex in enumerate(examples[:2]): # 取前两个作为示例
+                example_text += f"--- 范文 {i+1} ({ex.get('type', '通用')}) ---\n"
+                example_text += f"标题：{ex['title']}\n"
+                example_text += f"正文：\n{ex['content']}\n"
+                example_text += f"💡 亮点分析：{ex.get('analysis', '')}\n\n"
+            return example_text
+    except Exception as e:
+        print(f"[Writer Warning] 加载范文失败: {e}")
+    return ""
 
-    # 解析 search_data
+
+# ============================================================================
+# 图文模式 - Chain of Thought 分步函数
+# ============================================================================
+
+def generate_outline_step(
+    topic: str, 
+    search_data: dict, 
+    persona: str,
+    model_name: str = "deepseek/deepseek-chat", 
+    temperature: float = 0.7
+) -> dict:
+    """
+    【Step 1】生成结构化大纲和标题
+    """
     search_data = search_data or {}
     source = search_data.get('source', '未知来源')
     original_title = search_data.get('title', topic)
     why_hot = search_data.get('why_hot', '')
     summary = search_data.get('summary', '')
-    outline = search_data.get('outline', [])
+    raw_outline = search_data.get('outline', [])
     
-    # 格式化大纲
     outline_text = ""
-    if outline and len(outline) > 0:
-        outline_text = json.dumps(outline, indent=2, ensure_ascii=False)
+    if raw_outline and len(raw_outline) > 0:
+        outline_text = json.dumps(raw_outline, indent=2, ensure_ascii=False)
 
-    # 【深度演绎模式】System Prompt - 骨架生肉
-    system_prompt = f"""你是小红书{persona or '深度内容博主'}赛道的顶级博主。
-你现在拿到了一份热门选题的调研报告，你需要基于这份【大纲】，创作一篇**深度、详实、不少于800字**的爆款笔记。
+    system_prompt = f"""你是内容策划专家，擅长分析热点话题并提炼结构化大纲。
+你的任务是：基于热点数据，输出一份**逻辑清晰、角度独特**的文章大纲。
 
-【🚫 严禁行为】
-1. 严禁简单扩写大纲。如果大纲是"多喝水"，你不能只写"我们要多喝水"，你必须写"我见过太多女生皮肤差是因为喝水方式不对，正确的喝水时间表是..."
-2. 严禁车轱辘话来回说。
-3. 严禁字数不足。
+【你的身份】{persona or '深度内容博主'}
 
-【⚡️ 深度扩充法则 (Deep Expansion Protocol)】
-针对大纲中的每一个点，你必须执行"三步走"策略来填充内容：
+【大纲设计原则】
+1. **3-5 个核心论点**：每个论点独立成章，形成递进或并列结构
+2. **角度要独特**：不要复述原大纲，要基于火爆原因找到用户真正关心的切入点
+3. **可扩展性**：每个论点必须能展开写 150-200 字
 
-**第一步：观点升维 (Insight)**
-  - 不要只陈述事实，要给出一个反直觉的、或者带有强烈个人色彩的判断。
-  - 结合火爆原因中的痛点，点出用户真正在乎的东西。
-
-**第二步：案例/场景植入 (Scenario)**
-  - **必须脑补一个具体场景**。
-  - 使用"我有一个朋友..."、"上次面试时..."、"我复盘了上个月的数据..."这种句式。
-  - 细节要具体到：数字、时间、地点、对话。
-
-**第三步：落地实操 (Actionable Advice)**
-  - 给出具体的 SOP、话术模板或避坑指南。
-  - 这一部分必须包含 `1. 2. 3.` 的列表项。
-
-【文章结构要求】
-1. **标题**：结合原始标题和火爆原因，起 5 个更具吸引力的标题。
-2. **正文**：
-   - 开头：引用核心摘要中的冲突点，直接炸场。
-   - 中间：遍历参考大纲，**每个点至少展开写 150-200 字**。
-   - 结尾：强力升华，引导互动。
-
-【活人感写作指南】
-1. **开头即炸裂**：第一句必须是强情绪宣泄、反直觉结论或具体的场景描述。
-2. **口语化 & 碎碎念**：多用短句，适度重复表达激动，善用括号补充内心戏。
-3. **排版呼吸感**：每段不超过 3 行，关键金句独立成段，善用 Emoji 作为情绪标点。
-
-【严禁 AI 味套话 - 质量红线】
-以下表达一旦出现立即判定为不合格：
-- "众所周知"、"不得不说"、"可以说是"、"值得一提的是"
-- "在...方面"、"进行...操作"、"相关的..."
-- 空洞总结："总而言之"、"综上所述"、"由此可见"
-- 没有具体数字和时间的泛化描述（"很多"、"大量"、"经常"）
-- 机械式列举："首先...其次...最后..."（必须用口语化连接）
-
-【真实博主自检清单 - 必须全部满足】
-✓ 至少 2 处具体数字（如：涨粉 3000、连续 15 天、花了 2 小时）
-✓ 至少 1 处个人经历（我/我朋友/我同事的真实故事）
-✓ 至少 3 处强情绪词（绝了/太爱了/崩溃/yyds/救命）
-✓ 对话或内心独白至少 1 次（"我当时就想..."、"老板说..."）
-✓ 至少 1 处反问或自问自答（"你知道为什么吗？"、"是不是很离谱？"）
-
-【配图设计要求】
-设计 2-6 张配图，每张配图独立表达一个视觉主题。
-
-**穿搭风格要求**（职场主题）：
-- ✓ 推荐：针织衫、衬衫、T恤、牛仔裤、半身裙、休闲外套
-- ✗ 避免：正式西装、职业套装、领带、高跟鞋
-
-**背景场景要求**（职场主题）：
-- ✓ 推荐：现代办公室（开放式）、咖啡厅、休息区、会议室、窗边
-- ✓ 要求：真实感场景，自然光照，生活化氛围
-- ✗ 避免：过于正式的会议室、传统办公桌
-
-**图片生成字段要求**：
-1. description：中文描述画面主体、穿搭、场景、氛围，说明该图在文章中承担的角色
-2. sentiment：图片风格情感，职场主题建议使用"职场日常"
-3. prompt：生图提示词，必须包含：
-   - 人物：二次元女性角色
-   - 穿搭：具体描述（如"wearing casual cardigan and jeans"）
-   - 背景：具体场景（如"modern office with large windows"）
-   - 光照：natural lighting
-4. cover_text（仅第一张主图需要）：3-8个汉字的核心文案，用于叠加显示
-   - 要求：提炼文章核心观点或最吸睛的一句话
-   - 示例："职场穿搭自由"、"拒绝内耗"、"年终奖攻略"
+【标题设计原则】
+1. 使用数字、疑问句、惊叹句等爆款技巧
+2. 结合火爆原因，击中用户痛点
+3. 5 个标题风格多样（干货型、情绪型、悬念型、对比型、故事型）
 
 【输出格式】
-必须严格按照以下 JSON 结构输出，不要输出任何其他内容：
-
-**重要**：对话和引用必须使用中文引号「」，禁止使用英文双引号 "
-示例：❌ "老板说："加油""  ✅ "老板说：「加油」"
-
+严格输出 JSON：
 {{
     "titles": ["标题1", "标题2", "标题3", "标题4", "标题5"],
-    "content": "不少于800字的深度正文内容，分段并包含emoji，用\\n表示换行，对话用中文引号「」",
-    "image_designs": [
-        {{
-            "index": 1,
-            "description": "封面图：职场女性角色，穿休闲针织衫和牛仔裤，站在现代办公室窗边",
-            "sentiment": "职场日常",
-            "prompt": "anime style office girl wearing casual cardigan and jeans, modern office background with large windows, natural lighting",
-            "cover_text": "职场穿搭自由"
-        }},
-        {{
-            "index": 2,
-            "description": "配图描述",
-            "sentiment": "职场日常",
-            "prompt": "配图提示词"
-        }}
+    "outline": [
+        "论点1：简要描述（10-20字）",
+        "论点2：简要描述",
+        "论点3：简要描述"
     ]
 }}
 
-【写作规则】
-1. 标题要有爆款潜力，使用数字、疑问句、惊叹句等吸睛技巧
-2. 正文必须深度详实，**字数不少于800字**，不能敷衍了事
-3. image_designs 数组包含 2-6 个元素
-4. **第一张图片（主图）必须包含 cover_text 字段**：3-8个汉字的核心文案
-5. 配图（第2-6张）不需要 cover_text 字段
-6. JSON 字符串中必须用 \\n 表示换行，不要使用实际换行符"""
+只输出 JSON，不要其他内容。"""
 
-    # 【深度演绎模式】User Prompt - 数据注入
-    user_content = f"""当前热门选题信息如下：
+    user_content = f"""热门选题信息：
 - 来源平台：{source}
 - 原始标题：{original_title}
 - 火爆原因：{why_hot}
 - 核心摘要：{summary}
-- 参考大纲：
+- 原始大纲（仅供参考，需要你重新提炼）：
+{outline_text}
+
+请分析以上信息，输出结构化大纲和 5 个爆款标题。"""
+
+    print("[Writer] Step 1: 生成大纲和标题...")
+    return _call_llm_and_parse(system_prompt, user_content, topic, persona, model_name, temperature, log_result=False)
+
+
+def generate_content_step(
+    topic: str,
+    outline: list,
+    titles: list,
+    persona: str,
+    search_data: dict = None,
+    reference_text: str = None,
+    model_name: str = "deepseek/deepseek-chat",
+    temperature: float = 0.8
+) -> dict:
+    """
+    【Step 2】基于大纲生成深度正文 (Few-Shot Enhanced)
+    """
+    search_data = search_data or {}
+    why_hot = search_data.get('why_hot', '')
+    summary = search_data.get('summary', '')
+    
+    outline_text = "\n".join([f"- {item}" for item in outline])
+    titles_preview = titles[0] if titles else topic
+    
+    # 加载 Few-Shot 范文
+    few_shot_examples = load_few_shot_examples()
+    
+    reference_section = ""
+    if reference_text:
+        reference_section = f"""
+【参考内容】（仿写其风格）：
+---
+{reference_text}
+---
+"""
+
+    system_prompt = f"""你是小红书{persona or '深度内容博主'}赛道的顶级博主，以"真诚分享、像朋友聊天"著称。
+
+{few_shot_examples}
+
+【🎯 核心任务】
+将大纲扩展为一篇 **800+ 字** 的高质量正文，读起来像"一个真实的人在和朋友分享经验"，而不是"AI在总结知识点"。
+
+【🚫 AI 味对照表 - 看到就改】
+❌ AI 写法 → ✅ 真人写法
+
+❌ "首先，我们需要了解..." → ✅ "说实话，我一开始也不懂这个..."
+❌ "众所周知，职场中..." → ✅ "上周我同事被裁了，我才意识到..."  
+❌ "值得一提的是..." → ✅ "对了，还有个坑我必须说一下..."
+❌ "在沟通方面，我们应该..." → ✅ "每次跟老板汇报我都紧张，后来我发现..."
+❌ "总而言之/综上所述" → ✅ "说了这么多，其实就一句话：..."
+❌ "这对于我们来说非常重要" → ✅ "这点我真的吃过亏，当时..."
+❌ "需要注意的是" → ✅ "千万别像我一样..."
+❌ "很多人认为" → ✅ "我之前也这么以为，直到..."
+❌ "进行深入分析" → ✅ "我琢磨了好几天，发现..."
+❌ "提升自己的能力" → ✅ "我花了3个月死磕这个技能..."
+
+【✨ 真人感写作公式】
+
+**开头（必须二选一）：**
+A. 场景代入："昨天发生了一件事，让我必须来说这个..."
+B. 情绪炸裂："救命！我终于想明白了一件事..."
+
+**中间（每个论点必须有）：**
+- 一个具体的故事/场景（时间+地点+人物+细节）
+- 一个反直觉的观点或踩坑经验
+- 一个可执行的方法（话术/步骤/清单）
+
+**结尾（必须二选一）：**
+A. 真诚互动："你们遇到过类似的情况吗？评论区聊聊"
+B. 金句升华："（一句有力量的话，不要鸡汤）"
+
+【📝 细节要求】
+1. **短句为主**：每句不超过20字，多用句号，少用逗号
+2. **具体数字**：至少3处（如：3年、5个方法、涨薪40%）
+3. **情绪词**：每200字至少1个（绝了/离谱/崩溃/太真实了/救命）
+4. **内心戏**：用括号补充内心独白，如：（当时我真的想翻白眼）
+5. **段落短**：每段最多3行，关键观点独立成段
+
+【🎨 排版规范】
+- 每段之间空一行
+- 重点句子可以加粗
+- 适当使用 emoji 作为情绪标点（💡📌🔥✨）
+- 使用 1️⃣ 2️⃣ 3️⃣ 或 · 作为列表符号
+
+【输出格式】
+严格输出 JSON：
+{{
+    "content": "不少于800字的深度正文内容，分段并包含emoji，用\\n表示换行，对话用中文引号「」"
+}}
+
+**重要**：对话和引用必须使用中文引号「」，禁止使用英文双引号 "
+只输出 JSON，不要其他内容。"""
+
+    user_content = f"""【文章标题方向】{titles_preview}
+
+【火爆原因】{why_hot}
+
+【核心摘要】{summary}
+
+【文章大纲】（必须严格遵循）
 {outline_text}
 
 {reference_section}
-请基于以上信息，按照 System Prompt 中的【深度扩充法则】，将这篇笔记扩写至 800 字以上。
-哪怕大纲只有一句话，你也要通过举例、讲故事、列步骤，将其丰富成一段有血有肉的内容。
+请基于以上大纲，按照【深度扩充法则】，将这篇笔记扩写至 800 字以上。
+哪怕某个论点只有一句话，你也要通过举例、讲故事、列步骤，将其丰富成一段有血有肉的内容。"""
+
+    print("[Writer] Step 2: 基于大纲生成深度正文...")
+    return _call_llm_and_parse(system_prompt, user_content, topic, persona, model_name, temperature, log_result=False)
+
+
+def generate_visuals_step(
+    topic: str,
+    content: str,
+    model_name: str = "deepseek/deepseek-chat",
+    temperature: float = 0.7,
+    global_style: Optional[str] = None
+) -> dict:
+    """
+    【Step 3】基于正文生成配图设计 (Style Consistent)
+    
+    新增功能：先定义全局美术风格，确保配图一致性。
+    """
+    # 截取正文核心部分（避免 token 过长）
+    content_preview = content[:3000] if len(content) > 3000 else content
+
+    # 如果没有指定全局风格，让 LLM 自己生成一个
+    style_instruction = ""
+    if global_style:
+        style_instruction = f"【全局美术风格】必须严格遵循此风格：{global_style}"
+    else:
+        style_instruction = "【全局美术风格】请先定义一个统一的视觉风格（Art Direction），例如：'Warm cinematic lighting with soft pastel tones' 或 'Cyberpunk neon aesthetic with high contrast'，并确保所有配图都遵循此风格。"
+
+    system_prompt = f"""你是**资深艺术总监 (Art Director)**，专精于为社交媒体内容设计配图。
+你现在要阅读一篇完整的小红书文章，并为其设计 3-5 张配图。
+
+【核心任务】
+1. 设定或遵循统一的**全局美术风格 (Art Direction)**，确保所有图片看起来是一套图。
+2. 阅读正文，提取 3-5 个**视觉化关键场景**
+3. 为每个场景设计 FLUX 优化的生图提示词
+
+{style_instruction}
+
+【配图设计原则】
+- 第一张图（Index 1）必须是最吸睛的「钩子图」，构图干净、视觉冲击力强
+- 每张图独立表达一个视觉主题，与正文段落呼应
+- 配图要能**脱离文字独立传达信息**
+- **一致性**：所有图片的光影、色调、滤镜风格必须保持高度一致
+
+【prompt 字段要求（FLUX 优化）】
+1. **必须使用英文**
+2. **必须是描述性自然语言句子**，不是标签堆砌
+3. **结构**：[Global Style] + Subject + Action/Context + Lighting/Atmosphere
+4. 示例：
+   - ✅ "Cinematic warm lighting, A young professional woman working in a cozy coffee shop, sunlight streaming through the window, soft bokeh"
+   - ✅ "Cinematic warm lighting, Close-up of hands typing on a laptop keyboard, coffee cup on table, cozy atmosphere"
+   - ❌ "girl, office, working, natural light, anime" （标签堆砌，禁止）
+
+【description 字段要求】
+- 中文描述画面主体、场景、氛围
+- 说明该图在文章中承担的角色（如：开场图、转折点、总结图）
+
+【sentiment 字段要求】
+- 图片风格情感，如："职场日常"、"温馨治愈"、"励志奋斗"
+
+【输出格式】
+严格输出 JSON：
+{{
+    "global_style": "简短的英文风格定义，如 'Cinematic lighting, warm tones, 35mm film grain'",
+    "image_designs": [
+        {{
+            "index": 1,
+            "description": "钩子封面图：职场女性站在现代办公室窗边，阳光洒落，构图干净",
+            "sentiment": "职场日常",
+            "prompt": "Cinematic lighting, warm tones, 35mm film grain, A young professional woman standing by large office windows, morning sunlight streaming in, modern minimalist workspace, confident atmosphere"
+        }},
+        {{
+            "index": 2,
+            "description": "配图描述：该图在文章中的作用",
+            "sentiment": "情感基调",
+            "prompt": "Cinematic lighting, warm tones, 35mm film grain, Subject + Action/Context + Lighting/Atmosphere"
+        }}
+    ]
+}}
+
 只输出 JSON，不要其他内容。"""
 
-    return _call_llm_and_parse(system_prompt, user_content, topic, persona, model_name, temperature)
+    user_content = f"""【文章选题】{topic}
+
+【完整正文】
+{content_preview}
+
+请基于以上正文内容，设计 3-5 张配图。
+第一张必须是「钩子图」，视觉冲击力最强。
+确保所有图片风格统一！"""
+
+    print("[Writer] Step 3: 基于正文生成配图设计...")
+    return _call_llm_and_parse(system_prompt, user_content, topic, None, model_name, temperature, log_result=False)
+
+
+def generate_image_note(topic: str, persona: str = None, reference_text: str = None, model_name: str = "deepseek/deepseek-chat", search_data: dict = None, temperature: float = 0.8) -> dict:
+    """
+    【图文模式】生成小红书图文笔记（长文案 + 配图提示词）
+    
+    采用 Chain of Thought 三步流水线，分步生成以提高内容质量：
+    1. generate_outline_step: 生成结构化大纲 + 5 个标题
+    2. generate_content_step: 基于大纲深度扩展正文（800+ 字）
+    3. generate_visuals_step: 基于正文设计配图（3-5 张）
+    """
+    print(f"\n{'='*60}")
+    print(f"[Writer] 🚀 图文模式 - Chain of Thought 流水线启动")
+    print(f"[Writer] 选题: {topic}")
+    print(f"{'='*60}")
+    
+    # ========== Step 1: 生成大纲和标题 ==========
+    step1_result = generate_outline_step(
+        topic=topic,
+        search_data=search_data,
+        persona=persona,
+        model_name=model_name,
+        temperature=0.7  # 大纲生成用较低温度，保持结构稳定
+    )
+    
+    titles = step1_result.get("titles", [])
+    outline = step1_result.get("outline", [])
+    
+    print(f"[Writer] ✅ Step 1 完成 - 生成 {len(titles)} 个标题, {len(outline)} 个大纲要点")
+    for i, point in enumerate(outline, 1):
+        print(f"         {i}. {point}")
+    
+    # ========== Step 2: 基于大纲生成正文 ==========
+    step2_result = generate_content_step(
+        topic=topic,
+        outline=outline,
+        titles=titles,
+        persona=persona,
+        search_data=search_data,
+        reference_text=reference_text,
+        model_name=model_name,
+        temperature=temperature  # 正文生成用用户指定的温度
+    )
+    
+    content = step2_result.get("content", "")
+    content_len = len(content)
+    
+    print(f"[Writer] ✅ Step 2 完成 - 正文 {content_len} 字")
+    
+    # ========== Step 3: 基于正文生成配图 ==========
+    step3_result = generate_visuals_step(
+        topic=topic,
+        content=content,
+        model_name=model_name,
+        temperature=0.7  # 配图设计用较低温度
+    )
+    
+    image_designs = step3_result.get("image_designs", [])
+    
+    print(f"[Writer] ✅ Step 3 完成 - 生成 {len(image_designs)} 张配图设计")
+    
+    # ========== 合并最终结果 ==========
+    final_result = {
+        "titles": titles,
+        "content": content,
+        "image_designs": image_designs
+    }
+    
+    # 记录生成历史
+    log_generation(
+        topic=topic,
+        persona=persona or "通用博主",
+        titles=titles,
+        content_preview=content[:200]
+    )
+    
+    print(f"\n{'='*60}")
+    print(f"[Writer] 🎉 图文模式流水线完成")
+    print(f"[Writer] 标题数: {len(titles)}, 正文字数: {content_len}, 配图数: {len(image_designs)}")
+    print(f"{'='*60}\n")
+    
+    return final_result
 
 
 def generate_video_script(topic: str, persona: str = None, reference_text: str = None, model_name: str = "deepseek/deepseek-chat", temperature: float = 0.8) -> dict:

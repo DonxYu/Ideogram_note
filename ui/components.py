@@ -187,16 +187,16 @@ VOLC_TTS     {'[OK]' if volc_tts_ok else '[--]'}
             key="image_provider_select"
         )
         
-        # Replicate 二次元模型选择
+        # FLUX 模型速度选择
         if st.session_state.image_provider == "replicate":
-            st.session_state.anime_model = st.selectbox(
-                "二次元模型",
-                ["anything-v4", "flux-anime"],
-                format_func=lambda x: "Anything V4 (经典稳定)" if x == "anything-v4" else "Flux Anime (高质量)",
-                key="anime_model_select"
+            st.session_state.use_schnell = st.checkbox(
+                "使用快速模式 (flux-schnell)",
+                value=False,
+                help="勾选使用 flux-schnell（更快），不勾选使用 flux-dev（更高质量）",
+                key="use_schnell_checkbox"
             )
         else:
-            st.session_state.anime_model = "anything-v4"  # 默认值
+            st.session_state.use_schnell = False
         
         # 视频模式才显示 TTS 配置
         if st.session_state.get("workflow_mode") == "video":
@@ -650,8 +650,8 @@ def _render_image_export():
                 
                 # 构造 scene 结构以复用 generate_single_image
                 scene_like = {"prompt": design.get("prompt", "")}
-                anime_model = getattr(st.session_state, 'anime_model', 'anything-v4')
-                path, error = generate_single_image(scene_like, i, provider, anime_model)
+                use_schnell = getattr(st.session_state, 'use_schnell', False)
+                path, error = generate_single_image(scene_like, i, provider, use_schnell=use_schnell)
                 image_paths[i] = path
                 image_errors[i] = error
                 
@@ -686,10 +686,10 @@ def _render_image_export():
                 st.error(f"❌ {img_err[:30]}...")
                 if st.button(f"🔄 重试", key=f"retry_img_{i}"):
                     provider = getattr(st.session_state, 'image_provider', 'replicate')
-                    anime_model = getattr(st.session_state, 'anime_model', 'anything-v4')
+                    use_schnell = getattr(st.session_state, 'use_schnell', False)
                     with st.spinner("重新生成中..."):
                         scene_like = {"prompt": design.get("prompt", "")}
-                        path, error = generate_single_image(scene_like, i, provider, anime_model)
+                        path, error = generate_single_image(scene_like, i, provider, use_schnell=use_schnell)
                         image_paths[i] = path
                         image_errors[i] = error
                         st.session_state.image_paths = image_paths
@@ -815,7 +815,7 @@ def _render_video_studio():
         # 一键生成按钮（并发版本：图音并行）
         if st.button("🚀 一键并发生成", use_container_width=True, type="primary"):
             provider = getattr(st.session_state, 'image_provider', 'replicate')
-            anime_model = getattr(st.session_state, 'anime_model', 'anything-v4')
+            use_schnell = getattr(st.session_state, 'use_schnell', False)
             tts_provider = getattr(st.session_state, 'tts_provider', 'edge')
             voice = getattr(st.session_state, 'voice', None)
             
@@ -844,11 +844,12 @@ def _render_video_studio():
                 with ThreadPoolExecutor(max_workers=2) as executor:
                     # 提交图片生成任务（带主题）
                     future_imgs = executor.submit(
-                        generate_images, 
-                        scenes_to_gen_img, 
-                        provider, 
-                        anime_model,
-                        topic  # 传入主题
+                        lambda: generate_images(
+                            scenes=scenes_to_gen_img, 
+                            provider=provider, 
+                            topic=topic,
+                            use_schnell=use_schnell
+                        )
                     ) if scenes_to_gen_img else None
                     
                     # 提交音频生成任务（带主题）
@@ -910,9 +911,9 @@ def _render_video_studio():
                         st.error(f"失败: {img_err[:20]}")
                         if st.button(f"🔄 重试", key=f"retry_img_{i}"):
                             provider = getattr(st.session_state, 'image_provider', 'replicate')
-                            anime_model = getattr(st.session_state, 'anime_model', 'anything-v4')
+                            use_schnell = getattr(st.session_state, 'use_schnell', False)
                             with st.spinner("生成中..."):
-                                path, error = generate_single_image(scene, i, provider, anime_model)
+                                path, error = generate_single_image(scene, i, provider, use_schnell=use_schnell)
                                 image_paths[i] = path
                                 image_errors[i] = error
                                 st.session_state.image_paths = image_paths

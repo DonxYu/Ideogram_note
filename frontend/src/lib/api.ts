@@ -92,6 +92,22 @@ export interface HealthResponse {
   volc_tts: boolean;
 }
 
+// ========== Step-by-Step Types ==========
+
+export interface OutlineResponse {
+  titles: string[];
+  outline: string[];
+}
+
+export interface ContentResponse {
+  content: string;
+}
+
+export interface VisualsResponse {
+  image_designs: ImageDesign[];
+  global_style?: string;
+}
+
 // ========== API Functions ==========
 
 async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
@@ -124,7 +140,52 @@ export async function analyzeTopics(keyword: string, mode: "websearch" | "llm" =
   });
 }
 
-// Content Generation
+// Step 1: Create Outline
+export async function createOutline(params: {
+  topic: string;
+  persona?: string;
+  search_data?: any;
+  model_name?: string;
+  temperature?: number;
+}): Promise<OutlineResponse> {
+  return fetchAPI<OutlineResponse>("/api/content/step/outline", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+// Step 2: Create Content
+export async function createContentStep(params: {
+  topic: string;
+  outline: string[];
+  titles: string[];
+  persona?: string;
+  search_data?: any;
+  reference_url?: string;
+  model_name?: string;
+  temperature?: number;
+}): Promise<ContentResponse> {
+  return fetchAPI<ContentResponse>("/api/content/step/content", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+// Step 3: Create Visuals
+export async function createVisuals(params: {
+  topic: string;
+  content: string;
+  model_name?: string;
+  temperature?: number;
+  global_style?: string;
+}): Promise<VisualsResponse> {
+  return fetchAPI<VisualsResponse>("/api/content/step/visuals", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+// Full Generation (Legacy / Video Mode)
 export async function generateContent(params: {
   topic: string;
   persona?: string;
@@ -146,9 +207,8 @@ export async function generateContent(params: {
 export async function generateImages(params: {
   scenes: Array<{ prompt: string; sentiment?: string }>;
   provider?: string;
-  anime_model?: string;
   topic?: string;
-  mode?: "image" | "video";  // 图文模式主图用 Gemini
+  use_schnell?: boolean;  // true: flux-schnell (快), false: flux-dev (高质量)
 }): Promise<BatchMediaResponse> {
   return fetchAPI<BatchMediaResponse>("/api/media/images", {
     method: "POST",
@@ -160,8 +220,8 @@ export async function generateSingleImage(params: {
   scene: { prompt: string; sentiment?: string };
   index: number;
   provider?: string;
-  anime_model?: string;
   topic?: string;
+  use_schnell?: boolean;
 }): Promise<MediaResult> {
   return fetchAPI<MediaResult>("/api/media/images/single", {
     method: "POST",
@@ -244,8 +304,8 @@ export function streamImages(
   params: {
     scenes: Array<{ prompt: string; sentiment?: string }>;
     provider?: string;
-    anime_model?: string;
     topic?: string;
+    use_schnell?: boolean;
   },
   onProgress: (data: {
     type: "progress" | "result" | "done";
@@ -320,4 +380,3 @@ export async function exportNote(params: {
     body: JSON.stringify(params),
   });
 }
-
